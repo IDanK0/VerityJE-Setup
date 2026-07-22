@@ -64,8 +64,8 @@ if (-not (Press)) { exit 0 }
 
 # === SERVICES ===
 $svc = @{K=$true;L=$true;W=$true}
-$svcNames = @("FastKoko","LiteLLM","WhisperServer")
-$svcDescs = @("Text-to-Speech   Kokoro-82M   :8880","AI Gateway       100+ LLMs    :4000","Speech-to-Text   Whisper      :9000")
+$svcNames = @("FastKoko      ","LiteLLM       ","WhisperServer ")
+$svcDescs = @("Text-to-Speech    Kokoro-82M    :8880","AI Gateway        100+ LLMs     :4000","Speech-to-Text    Whisper       :9000")
 $svcKeys = @("K","L","W")
 $cursor = 0
 
