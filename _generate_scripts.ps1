@@ -64,7 +64,7 @@ Write-Host "================================================" -F Yellow
 Write-Host ""
 
 Write-Host "Starting server..." -F Yellow
-Start-Process powershell -NoExit -Arg "-NoExit","-Command","`$env:PYTHONUTF8='1';$($edCmd)`$env:MODEL_DIR='$(`$env:MODEL_DIR)';`$env:VOICES_DIR='$(`$env:VOICES_DIR)';`$env:PYTHONPATH='$(`$env:PYTHONPATH)'; & '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
+Start-Process powershell -NoExit -Arg "-NoExit","-Command","`$env:PYTHONUTF8='1';$($edCmd)`$env:MODEL_DIR=`$(`$repoPath+'\api\src\models');`$env:VOICES_DIR=`$(`$repoPath+'\api\src\voices\v1_0');`$env:PYTHONPATH=`$(`$repoPath+';'+`$repoPath+'\api'); & '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
 
 Write-Host "Waiting for server..." -F Yellow
 `$rd = `$false;for(`$i=1;`$i -le 50;`$i++){Start-Sleep -Milliseconds 600;try{`$r=Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -EA SilentlyContinue;if(`$r.StatusCode -eq 200){`$rd=`$true;break}}catch{}}
@@ -190,7 +190,7 @@ Write-Host "================================================" -F Yellow
 Write-Host "  Verity JE - Manager" -F Yellow
 Write-Host "================================================" -F Yellow
 Write-Host ""
-foreach (`$k in `$services.Keys) { if (tp `$services[`$k].p) { `$services[`$k].r = `$true; Write-Host "  [``$(`$services[`$k].n)] detected" -F Green } }
+  foreach (`$k in `$services.Keys) { if (tp `$services[`$k].p) { `$services[`$k].r = `$true; Write-Host "  detected: `$(`$services[`$k].n)" -F Green } }
 
 while (`$true) {
   Menu
