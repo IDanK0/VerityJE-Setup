@@ -8,21 +8,6 @@ One-click AI backend installer for the [Verity JE](https://www.curseforge.com/mi
 
 ---
 
-## Overview
-
-Verity JE adds an AI companion to Minecraft. This tool installs and configures the three backend services the mod needs: speech-to-text, text-to-speech, and an LLM gateway. Everything runs locally on your machine.
-
-### Architecture
-
-```
-Microphone --> Whisper (STT) --> text --> LiteLLM --> Groq / Ollama --> text --> Kokoro (TTS) --> Speakers
-```
-
-- **Cloud mode**: LiteLLM routes to Groq. Fast, no GPU needed. Requires a Groq API key.
-- **Local mode**: LiteLLM routes to Ollama running a local model. Private, fully offline.
-
----
-
 ## Quick Start
 
 ```powershell
@@ -30,53 +15,55 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 .\Manager.bat
 ```
 
-The installer detects your hardware, asks which services you want, and handles everything automatically.
+The installer detects your hardware, asks which services you want, and handles everything automatically. No manual installs, no Docker, no config files.
 
 ---
 
-## Services Installed
+## Services
 
 | Service | Purpose | Port | Model |
 |---------|---------|------|-------|
 | FastKoko | Text-to-Speech | `8880/v1/` | Kokoro-82M |
-| LiteLLM | AI Gateway (100+ LLMs) | `4000/v1/` | Groq, Ollama, or any provider |
-| WhisperServer | Speech-to-Text | `9000/v1/` | large-v3-turbo, medium, base, or tiny |
+| LiteLLM | AI Gateway (100+ LLMs) | `4000/v1/` | Groq / Ollama / any provider |
+| WhisperServer | Speech-to-Text | `9000/v1/` | auto-selected by hardware |
 | Ollama | Local LLM runner | optional | llama3.2, mistral, gemma, etc. |
 
 All services expose OpenAI-compatible APIs under `http://127.0.0.1:{PORT}/v1/`.
 
 ---
 
-## Hardware Detection
+## Architecture
 
-The installer automatically adapts to your machine:
+```
+Microphone -> Whisper (STT) -> text -> LiteLLM -> Groq / Ollama -> text -> Kokoro (TTS) -> Speakers
+```
+
+- **Cloud mode**: LiteLLM routes to Groq. Requires a Groq API key.
+- **Local mode**: LiteLLM routes to Ollama running a local model. Fully offline.
+
+---
+
+## Hardware Detection
 
 | Hardware | Whisper Model | Torch Backend | CUDA Index |
 |----------|--------------|---------------|------------|
 | NVIDIA GPU (6+ GB VRAM) | `large-v3-turbo` | CUDA | auto-detected |
 | NVIDIA GPU (4-6 GB VRAM) | `medium` | CUDA | auto-detected |
 | NVIDIA GPU (<4 GB VRAM) | `base` | CUDA | auto-detected |
-| AMD GPU | `medium` | CPU | N/A |
-| CPU only, 16+ GB RAM | `base` | CPU | N/A |
+| AMD GPU / CPU only, 16+ GB RAM | `base` | CPU | N/A |
 | CPU only, <16 GB RAM | `tiny` | CPU | N/A |
 
-Additional checks:
-- Python version: auto-selects 3.10-3.13 (excludes 3.14+ due to torch compatibility)
-- Disk space: warns if below 15 GB
-- eSpeak NG path: searched in multiple locations
-- uv binary path: auto-detected
+All values are auto-detected at install time. Nothing is hardcoded.
 
 ---
 
 ## Usage
 
-### Manager (recommended)
+### Manager
 
 ```powershell
 .\Manager.bat
 ```
-
-Controls all services from one window:
 
 ```
 [S] Start all    [A] Stop all    [R] Restart all
@@ -98,30 +85,8 @@ Controls all services from one window:
 
 - Windows 10 or 11
 - Internet connection
-- That is it. Missing dependencies (Git, uv, Python, eSpeak NG) are installed automatically via winget.
 
----
-
-## Project Structure
-
-```
-VerityJE-Setup/
-|
-+-- setup.ps1                     One-click installer
-+-- _generate_scripts.ps1         Script generator (called by setup)
-+-- Manager.bat                   Master control panel
-+-- Manager.ps1
-+-- FastKoko.bat                  TTS launcher
-+-- FastKoko.ps1
-+-- LiteLLM.bat                   AI Gateway launcher
-+-- LiteLLM.ps1
-+-- WhisperServer.bat             STT launcher
-+-- WhisperLauncher.ps1
-+-- WhisperServer/
-|   +-- server.py                 Whisper API server
-+-- .gitignore
-+-- README.md
-```
+Missing dependencies (Git, uv, Python 3.10-3.13, eSpeak NG) are installed automatically. If winget is unavailable (e.g. Windows Sandbox), the installer downloads directly from official sources.
 
 ---
 
@@ -129,12 +94,29 @@ VerityJE-Setup/
 
 | Problem | Solution |
 |---------|----------|
-| Service not starting | Check port not in use (`netstat -ano`) and run `.\Manager.bat` again |
-| Model download failed | Installer retries automatically. For manual download, check service documentation |
-| CUDA not available | Update NVIDIA drivers. Installer falls back to CPU inference if GPU is not detected |
-| eSpeak NG not found | Run `winget install eSpeak-NG.eSpeak-NG` or set `PHONEMIZER_ESPEAK_LIBRARY` manually |
-| Python version conflict | Installer uses `uv` with isolated virtual environments (Python 3.10-3.13) |
-| Ollama not in PATH | Restart terminal after installation |
+| Service not starting | Check port is free (`netstat -ano`), restart via Manager |
+| Model download failed | Installer retries automatically. Re-run `setup.ps1` |
+| CUDA not available | Update NVIDIA drivers. Installer falls back to CPU |
+| winget not found | Installer downloads directly from official URLs |
+| Git/uv not found | Installer installs them automatically |
+| Python version conflict | Installer uses `uv` with isolated venvs (Python 3.10-3.13) |
+
+---
+
+## Project Structure
+
+```
+setup.ps1                 One-click installer
+_generate_scripts.ps1     Script generator (called by setup)
+Manager.bat / .ps1        Master control panel
+FastKoko.bat / .ps1       TTS launcher
+LiteLLM.bat / .ps1        AI Gateway launcher
+WhisperServer.bat         STT launcher
+WhisperLauncher.ps1
+WhisperServer/server.py   Whisper API server
+.gitignore
+README.md
+```
 
 ---
 

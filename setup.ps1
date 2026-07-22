@@ -77,65 +77,39 @@ while ($true) { Clear-Host; Write-Host "`n  Verity JE Setup - Confirm`n" -F $Yl;
     Write-Host "`n  [Y] proceed  [B] back  [Q] quit" -F $Dg; $k = K; if ($k.Key -eq "Q") { exit 0 }; if ($k.Key -eq "B") { break }; if ($k.KeyChar -eq 'y') { break }
 }
 
-# === DEPS ===
-function Install-WithWingetOrUrl($id, $url, $name, $exeName) {
-    if (T winget) {
-        Write-Host "  Installing $name via winget..." -F $Wh
-        winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-    } else {
-        Write-Host "  winget not found. Downloading $name..." -F $Wh
-        $tmp = Join-Path $env:TEMP "${exeName}Setup.exe"
-        $wc = New-Object Net.WebClient; $wc.DownloadFile($url, $tmp)
-        if (Test-Path $tmp) { Start-Process -FilePath $tmp -Arg "/SILENT" -Wait -EA SilentlyContinue; Remove-Item $tmp -EA SilentlyContinue }
-    }
-    $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-    return (T $exeName)
-}
-
-# === INSTALL DEPS ===
+# === SYSTEM DEPS ===
 if (-not $hasGit -or -not $hasUv -or (-not $espeakPath -and $svc.K)) { phase "System Dependencies"
     if (-not $hasGit) {
-        $ok = Install-WithWingetOrUrl "Git.Git" "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe" "Git" "git"
-        if (-not $ok) { Write-Host "  Git failed. Download: https://git-scm.com" -F $Rd; Read-Host; exit 1 }
+        if (T winget) { winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null; $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
+        else { Write-Host "  winget not found. Downloading Git..." -F $Wh; $tmp = Join-Path $env:TEMP "GitSetup.exe"; (New-Object Net.WebClient).DownloadFile("https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe", $tmp); Start-Process -FilePath $tmp -Arg "/SILENT" -Wait; Remove-Item $tmp -EA SilentlyContinue; $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
+        if (-not (T git)) { Write-Host "  Git failed." -F $Rd; Read-Host; exit 1 }
         Write-Host "  Git installed" -F $Gn; $hasGit = $true
     }
     if (-not $hasUv) {
-        if (T winget) {
-            winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-            $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-        } else {
-            Write-Host "  Installing uv via official script..." -F $Wh
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression" 2>&1 | Out-Null
-            $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-        }
+        if (T winget) { winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null; $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
+        else { Write-Host "  Installing uv via official script..." -F $Wh; powershell -NoProfile -EP Bypass -Command "Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression" 2>&1 | Out-Null; $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
         if (-not (T uv)) { Write-Host "  uv failed." -F $Rd; Read-Host; exit 1 }
         Write-Host "  uv installed" -F $Gn; $hasUv = $true; $bestPy = Get-BestPython; $uvBin = Get-UvBin
     }
-    if (-not $espeakPath -and $svc.K) {
-        if (T winget) { winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null } else { Write-Host "  eSpeak NG skipped (winget unavailable)" -F $Dg }
-        $espeakPath = Get-EspeakDll
-        if ($espeakPath) { Write-Host "  eSpeak NG installed" -F $Gn } else { Write-Host "  eSpeak NG (optional)" -F $Dg }
-    }
+    if (-not $espeakPath -and $svc.K) { if (T winget) { winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null } else { Write-Host "  eSpeak NG skipped (optional)" -F $Dg }; $espeakPath = Get-EspeakDll; if ($espeakPath) { Write-Host "  eSpeak NG installed" -F $Gn } }
     wait
 }
 
 # === FASTKOKO ===
 if ($svc.K) { $kDir = Join-Path $Path "Kokoro-FastAPI"; $kPy = Join-Path $kDir ".venv\Scripts\python.exe"; $kModel = Join-Path $kDir "api\src\models\v1_0\kokoro-v1_0.pth"
     phase "FastKoko - Kokoro TTS"
-    if (Test-Path (Join-Path $kDir "api\src\main.py")) { Write-Host "  skip  [1/5] Repository (already cloned)" -F $Dg } else { spn "Clone repository" 1 5 { param($P, $S) Set-Location $S; & git clone https://github.com/remsky/Kokoro-FastAPI.git (Join-Path $P "Kokoro-FastAPI") 2>&1 | Out-Null; if (-not (Test-Path (Join-Path $P "Kokoro-FastAPI\api\src\main.py"))) { throw "Clone failed" } } }
-    if (Test-Path $kPy) { Write-Host "  skip  [2/5] Environment (already exists)" -F $Dg } else { spn "Create Python environment ($bestPy)" 2 5 { param($P, $S, $py) $d = Join-Path $P "Kokoro-FastAPI"; Set-Location $d; $e = & uv venv .venv --python $py --seed 2>&1; if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) { throw "venv failed: $e" } } -xa $bestPy }
-    if (Pip-Has $kDir "kokoro") { Write-Host "  skip  [3/5] Dependencies (already installed)" -F $Dg } else { $env:CUDA = $cudaIdx; spn "Install dependencies (torch + kokoro)" 3 5 { param($P, $S) $d = Join-Path $P "Kokoro-FastAPI"; Set-Location $d; $pip = ".venv\Scripts\pip.exe"; & $pip install --upgrade pip -q 2>&1 | Out-Null; & $pip install "cython<3.0" -q 2>&1 | Out-Null; & $pip install -e ".[cpu]" 2>&1 | Out-Null; & $pip uninstall torch -y -q 2>&1 | Out-Null; $idx = ((Get-Item env:CUDA -EA SilentlyContinue).Value); & $pip install torch --index-url "https://download.pytorch.org/whl/$idx" --timeout 600 -q 2>&1 | Out-Null } }
+    if (Test-Path (Join-Path $kDir "api\src\main.py")) { Write-Host "  skip  [1/5] Repository" -F $Dg } else { spn "Clone repository" 1 5 { param($P, $S) Set-Location $S; & git clone https://github.com/remsky/Kokoro-FastAPI.git (Join-Path $P "Kokoro-FastAPI") 2>&1 | Out-Null; if (-not (Test-Path (Join-Path $P "Kokoro-FastAPI\api\src\main.py"))) { throw "Clone failed" } } }
+    if (Test-Path $kPy) { Write-Host "  skip  [2/5] Environment" -F $Dg } else { spn "Create Python environment ($bestPy)" 2 5 { param($P, $S, $py) $d = Join-Path $P "Kokoro-FastAPI"; Set-Location $d; $e = & uv venv .venv --python $py --seed 2>&1; if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) { throw "venv failed: $e" } } -xa $bestPy }
+    if (Pip-Has $kDir "kokoro") { Write-Host "  skip  [3/5] Dependencies" -F $Dg } else { spn "Install dependencies (torch + kokoro)" 3 5 { param($P, $S, $cuda) $d = Join-Path $P "Kokoro-FastAPI"; Set-Location $d; $pip = ".venv\Scripts\pip.exe"; & $pip install --upgrade pip -q 2>&1 | Out-Null; & $pip install "cython<3.0" -q 2>&1 | Out-Null; & $pip install -e ".[cpu]" 2>&1 | Out-Null; & $pip uninstall torch -y -q 2>&1 | Out-Null; & $pip install torch --index-url "https://download.pytorch.org/whl/$cuda" --timeout 600 -q 2>&1 | Out-Null; & ".venv\Scripts\python.exe" -c "import kokoro" 2>&1 | Out-Null } -xa $cudaIdx }
     Set-Location $startDir
-    if (Test-Path $kModel) { Write-Host "  skip  [4/5] Model (already downloaded)" -F $Dg } else { spn "Download Kokoro model (350 MB)" 4 5 { param($P, $S) $wc = New-Object Net.WebClient; $wc.DownloadFile("https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v1_0.pth", (Join-Path $P "Kokoro-FastAPI\api\src\models\v1_0\kokoro-v1_0.pth")) } }
+    if (Test-Path $kModel) { Write-Host "  skip  [4/5] Model" -F $Dg } else { spn "Download Kokoro model (350 MB)" 4 5 { param($P, $S) $wc = New-Object Net.WebClient; $wc.DownloadFile("https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v1_0.pth", (Join-Path $P "Kokoro-FastAPI\api\src\models\v1_0\kokoro-v1_0.pth")) } }
     Write-Host "  [5/5] Ready" -F $Gn; wait
 }
 
 # === LITELLM ===
 if ($svc.L) { phase "LiteLLM - AI Gateway"
-    if (T litellm) { $v = & litellm --version 2>&1; Write-Host "  skip  [1/2] LiteLLM ($v)" -F $Dg } else { spn "Install LiteLLM" 1 2 { param($P, $S) uv tool install "litellm[proxy]" 2>&1 | Out-Null }; Write-Host "  done  [1/2] LiteLLM installed" -F $Gn }
+    if (T litellm) { $v = & litellm --version 2>&1; Write-Host "  skip  [1/1] LiteLLM ($v)" -F $Dg } else { spn "Install LiteLLM" 1 1 { param($P, $S) uv tool install "litellm[proxy]" 2>&1 | Out-Null }; Write-Host "  done  [1/1] LiteLLM installed" -F $Gn }
     if ($uvBin -and ($env:Path -notlike "*$uvBin*")) { $env:Path += ";$uvBin" }
-    if (T ollama) { Write-Host "  skip  [2/2] Ollama (already installed)" -F $Dg } else { Write-Host "`n  Ollama runs LLMs locally (private, offline)." -F $Wh; Write-Host "  [Y] install  [N] skip" -F $Dg; $k = K; if ($k.KeyChar -eq 'y') { $t = Join-Path $env:TEMP "OllamaSetup.exe"; spn "Download Ollama" 2 2 { param($P, $S) $wc = New-Object Net.WebClient; $wc.DownloadFile("https://ollama.com/download/ollama-windows-amd64.exe", (Join-Path $env:TEMP "OllamaSetup.exe")) }; if (Test-Path $t) { Start-Process -FilePath $t -Arg "/S" -Wait -EA SilentlyContinue; Remove-Item $t -EA SilentlyContinue; $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User") }; if (T ollama) { Write-Host "  done  [2/2] Ollama installed" -F $Gn } else { Write-Host "  done  [2/2] Ollama restart terminal" -F $Dg } } else { Write-Host "  skip  [2/2] Ollama (skipped)" -F $Dg } }
-    if (T ollama) { Write-Host "`n  Pull model? Enter = skip" -F $Wh; Write-Host "  > " -NoNewline -F $Dg; $m = Read-Host; if ($m) { spn "Pull $m" 0 0 { param($P, $S, $mod) & ollama pull $mod 2>&1 | Out-Null } -xa $m | Out-Null; Write-Host "  Model $m pulled" -F $Gn } }
     wait
 }
 
@@ -143,17 +117,42 @@ if ($svc.L) { phase "LiteLLM - AI Gateway"
 if ($svc.W) { $wDir = Join-Path $Path "WhisperServer"; $wPy = Join-Path $wDir ".venv\Scripts\python.exe"; New-Item -ItemType Dir -Path $wDir -Force | Out-Null
     $wModel = "base"; if ($hasGPU -and $vramGB -ge 6) { $wModel = "large-v3-turbo" } elseif ($hasGPU -and $vramGB -ge 4) { $wModel = "medium" } elseif ($hasGPU) { $wModel = "base" } elseif ($ramGB -lt 16) { $wModel = "tiny" }
     phase "WhisperServer - STT ($wModel)"
-    if (Test-Path $wPy) { Write-Host "  skip  [1/3] Environment (already exists)" -F $Dg } else { spn "Create Python environment ($bestPy)" 1 3 { param($P, $S, $py) $d = Join-Path $P "WhisperServer"; Set-Location $d; $e = & uv venv .venv --python $py --seed 2>&1; if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) { throw "venv failed: $e" } } -xa $bestPy }
-    if (Pip-Has $wDir "whisper") { Write-Host "  skip  [2/3] Dependencies (already installed)" -F $Dg } else { $env:CUDA = $cudaIdx; spn "Install dependencies (whisper + torch)" 2 3 { param($P, $S) $d = Join-Path $P "WhisperServer"; Set-Location $d; $pip = ".venv\Scripts\pip.exe"; & $pip install --upgrade pip -q 2>&1 | Out-Null; & $pip install "openai-whisper>=1.1.10" "uvicorn[standard]" "fastapi" "pydantic" "python-multipart" "mutagen" -q 2>&1 | Out-Null; $idx = ((Get-Item env:CUDA -EA SilentlyContinue).Value); if ($idx -ne "cpu") { & $pip uninstall torch -y -q 2>&1 | Out-Null; & $pip install torch --index-url "https://download.pytorch.org/whl/$idx" --timeout 600 -q 2>&1 | Out-Null } } }
+    if (Test-Path $wPy) { Write-Host "  skip  [1/3] Environment" -F $Dg } else { spn "Create Python environment ($bestPy)" 1 3 { param($P, $S, $py) $d = Join-Path $P "WhisperServer"; Set-Location $d; $e = & uv venv .venv --python $py --seed 2>&1; if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) { throw "venv failed: $e" } } -xa $bestPy }
+    if (Pip-Has $wDir "whisper") { Write-Host "  skip  [2/3] Dependencies" -F $Dg } else { spn "Install dependencies (whisper + torch)" 2 3 { param($P, $S, $cuda) $d = Join-Path $P "WhisperServer"; Set-Location $d; $pip = ".venv\Scripts\pip.exe"; & $pip install --upgrade pip -q 2>&1 | Out-Null; & $pip install "openai-whisper>=1.1.10" "uvicorn[standard]" "fastapi" "pydantic" "python-multipart" "mutagen" -q 2>&1 | Out-Null; if ($cuda -ne "cpu") { & $pip uninstall torch -y -q 2>&1 | Out-Null; & $pip install torch --index-url "https://download.pytorch.org/whl/$cuda" --timeout 600 -q 2>&1 | Out-Null }; & ".venv\Scripts\python.exe" -c "import whisper; import torch" 2>&1 | Out-Null } -xa $(if($hasGPU){$cudaIdx}else{"cpu"}) }
     $wFix = Join-Path $wDir ".venv\Lib\site-packages\whisper.py"; if (Test-Path $wFix) { $c = Get-Content $wFix -Raw; if ($c -notmatch "msvcrt") { $c = $c -replace "libc_name = ctypes.util.find_library\('c'\)", 'libc_name = "msvcrt.dll"'; $c | Set-Content $wFix -Enc UTF8 } }
     $dev = if ($hasGPU) { "cuda" } else { "cpu" }
     spn "Download Whisper model ($wModel, $dev)" 3 3 { param($P, $S, $m, $d) $dir = Join-Path $P "WhisperServer"; Set-Location $dir; $r = & ".venv\Scripts\python.exe" -c "import whisper; whisper.load_model('$m',device='$d');print('OK')" 2>&1; if ($r -notmatch "OK") { throw $r } } -xa $wModel, $dev
     Set-Location $startDir; wait
 }
 
+# === OLLAMA (after all other services) ===
+if ($svc.L -or $svc.K -or $svc.W) {
+    $askOllama = -not (T ollama)
+    if (-not $askOllama) { $askOllama = $true }  # always ask if they want to pull a model
+    if ($askOllama) {
+        phase "Ollama (optional)"
+        if (-not (T ollama)) {
+            Write-Host "  Ollama runs LLMs locally (private, offline)." -F $Wh
+            Write-Host "  [Y] install  [N] skip" -F $Dg; $k = K
+            if ($k.KeyChar -eq 'y') {
+                $t = Join-Path $env:TEMP "OllamaSetup.exe"
+                spn "Download Ollama" 0 0 { param($P, $S) $wc = New-Object Net.WebClient; $wc.DownloadFile("https://ollama.com/download/ollama-windows-amd64.exe", (Join-Path $env:TEMP "OllamaSetup.exe")) }
+                if (Test-Path $t) { Start-Process -FilePath $t -Arg "/S" -Wait -EA SilentlyContinue; Remove-Item $t -EA SilentlyContinue; $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User") }
+                if (T ollama) { Write-Host "  Ollama installed" -F $Gn } else { Write-Host "  Ollama restart terminal" -F $Dg }
+            } else { Write-Host "  Ollama skipped" -F $Dg }
+        } else { Write-Host "  Ollama already installed" -F $Gn }
+        if (T ollama) {
+            Write-Host "`n  Pull a model? (e.g. llama3.2) Enter = skip" -F $Wh
+            Write-Host "  > " -NoNewline -F $Dg; $m = Read-Host
+            if ($m) { spn "Pull $m" 0 0 { param($P, $S, $mod) & ollama pull $mod 2>&1 | Out-Null } -xa $m | Out-Null; Write-Host "  Model $m pulled" -F $Gn }
+        }
+        wait
+    }
+}
+
 # === SCRIPTS ===
 phase "Generating Launcher Scripts"; Write-Host "  Creating .bat and .ps1 files..." -F $Wh
-powershell -EP Bypass -File "$PSScriptRoot\_generate_scripts.ps1" -VerityTMPath $Path -WhisperModel $wModel -EspeakDll $espeakPath -UvBin $uvBin
+. "$PSScriptRoot\_generate_scripts.ps1" -VerityTMPath $Path -WhisperModel $wModel -EspeakDll $espeakPath -UvBin $uvBin
 Write-Host "  Scripts generated" -F $Gn; wait
 
 # === DONE ===
