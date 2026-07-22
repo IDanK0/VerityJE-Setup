@@ -1,12 +1,14 @@
 param($VerityTMPath, $WhisperModel = "large-v3-turbo", $EspeakDll = "", $UvBin = "")
 if (-not $VerityTMPath) { $VerityTMPath = Split-Path -Parent $MyInvocation.MyCommand.Path }
 
-# ==== LiteLLM.bat ====
-@"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0LiteLLM.ps1"
-pause
-"@ | Set-Content (Join-Path $VerityTMPath "LiteLLM.bat") -Enc UTF8
+function Write-Bat($path, $ps1) {
+    [System.IO.File]::WriteAllText($path, "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"%~dp0$ps1`"`r`npause`r`n", [Text.Encoding]::ASCII)
+}
+
+Write-Bat (Join-Path $VerityTMPath "LiteLLM.bat") "LiteLLM.ps1"
+Write-Bat (Join-Path $VerityTMPath "FastKoko.bat") "FastKoko.ps1"
+Write-Bat (Join-Path $VerityTMPath "WhisperServer.bat") "WhisperLauncher.ps1"
+Write-Bat (Join-Path $VerityTMPath "Manager.bat") "Manager.ps1"
 
 # ==== LiteLLM.ps1 ====
 Set-Content (Join-Path $VerityTMPath "LiteLLM.ps1") -Enc UTF8 -Value @"
@@ -34,16 +36,8 @@ Write-Host "`nStarting on http://127.0.0.1:`$p/v1/" -F Green;Write-Host "Press C
 `$env:LITELLM_LOG = "INFO"; litellm --model `$m --port `$p
 "@
 
-# ==== FastKoko.bat ====
-@"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0FastKoko.ps1"
-pause
-"@ | Set-Content (Join-Path $VerityTMPath "FastKoko.bat") -Enc UTF8
-
 # ==== FastKoko.ps1 ====
 $edLine = if ($EspeakDll) { '$env:PHONEMIZER_ESPEAK_LIBRARY=' + "'$EspeakDll';" } else { "" }
-$edCmd = if ($EspeakDll) { "if(Test-Path '$EspeakDll'){`$env:PHONEMIZER_ESPEAK_LIBRARY='$EspeakDll'};" } else { "" }
 Set-Content (Join-Path $VerityTMPath "FastKoko.ps1") -Enc UTF8 -Value @"
 `$scriptDir = Split-Path -Parent `$MyInvocation.MyCommand.Path
 `$repoPath = Join-Path `$scriptDir "Kokoro-FastAPI"
@@ -60,10 +54,10 @@ Write-Host "  FastKoko - Kokoro TTS  :8880" -F Yellow
 Write-Host "================================================" -F Yellow;Write-Host ""
 
 Write-Host "Starting server..." -F Yellow
-Start-Process powershell -NoExit -Arg "-NoExit","-Command","`$env:PYTHONUTF8='1';$($edCmd)& '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
+Start-Process powershell -NoExit -Arg "-NoExit","-Command","& '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
 
 Write-Host "Waiting for server..." -F Yellow
-`$rd = `$false;for(`$i=1;`$i -le 50;`$i++){Start-Sleep -Mil 600;try{`$r=Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -EA SilentlyContinue;if(`$r.StatusCode -eq 200){`$rd=`$true;break}}catch{}}
+`$rd = `$false;for(`$i=1;`$i -le 50;`$i++){Start-Sleep -Milliseconds 600;try{`$r=Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -EA SilentlyContinue;if(`$r.StatusCode -eq 200){`$rd=`$true;break}}catch{}}
 if (!`$rd) { Write-Host "ERROR: Server not started" -F Red; Read-Host; exit 1 }
 Write-Host "SERVER READY!" -F Green
 Write-Host "API: http://127.0.0.1:8880/v1/" -F Yellow
@@ -86,13 +80,6 @@ Write-Host "`nGenerating..." -F Yellow
 try { `$b = @{model="kokoro";voice=`$sv;input=`$t;response_format="mp3"} | ConvertTo-Json; `$r = Invoke-WebRequest "http://127.0.0.1:8880/v1/audio/speech" -Method Post -ContentType "application/json" -Body `$b -TimeoutSec 120; `$ts = Get-Date -Format "yyyyMMdd_HHmmss"; `$o = Join-Path `$env:USERPROFILE\Desktop "tts_`$sv`_`$ts.mp3"; [IO.File]::WriteAllBytes(`$o, `$r.Content); Write-Host "Saved: `$o" -F Green } catch { Write-Host "ERROR: `$_" -F Red }
 Read-Host "`nPress Enter"
 "@
-
-# ==== WhisperServer.bat ====
-@"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0WhisperLauncher.ps1"
-pause
-"@ | Set-Content (Join-Path $VerityTMPath "WhisperServer.bat") -Enc UTF8
 
 # ==== WhisperLauncher.ps1 ====
 Set-Content (Join-Path $VerityTMPath "WhisperLauncher.ps1") -Enc UTF8 -Value @"
@@ -121,12 +108,6 @@ Write-Host "  curl -X POST http://127.0.0.1:9000/v1/audio/speech -F `"file=@audi
 Read-Host "`nPress Enter"
 "@
 
-# ==== Manager.bat ====
-@"
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0Manager.ps1"
-"@ | Set-Content (Join-Path $VerityTMPath "Manager.bat") -Enc UTF8
-
 # ==== Manager.ps1 ====
 Set-Content (Join-Path $VerityTMPath "Manager.ps1") -Enc UTF8 -Value @"
 `$scriptDir = Split-Path -Parent `$MyInvocation.MyCommand.Path
@@ -153,10 +134,11 @@ function Menu {
   Write-Host ""
   Write-Host "  -- Services --" -F Yellow
   foreach (`$kv in `$services.GetEnumerator()) {
-    `$k = `$kv.Key; `$s = `$kv.Value
-    `$st = if (`$s.r) { "ON " } else { "OFF" }
-    `$co = if (`$s.r) { "Green" } else { "Red" }
-    Write-Host ("  [{0}] {1,-22} {2}  {3}" -f `$k.Substring(0,1), `$s.n, `$st, `$s.u) -F `$co
+    `$key = `$kv.Key; `$svc = `$kv.Value
+    `$status = if (`$svc.r) { "ON " } else { "OFF" }
+    `$color = if (`$svc.r) { "Green" } else { "Red" }
+    `$label = ("  [{0}] {1,-22} {2}  {3}" -f `$key.Substring(0,1), `$svc.n, `$status, `$svc.u)
+    Write-Host `$label -F `$color
   }
   Write-Host ""
   Write-Host "  [Q] Quit" -F Yellow
@@ -187,7 +169,12 @@ Write-Host "================================================" -F Yellow
 Write-Host "  Verity JE - Manager" -F Yellow
 Write-Host "================================================" -F Yellow
 Write-Host ""
-foreach (`$k in `$services.Keys) { if (tp `$services[`$k].p) { `$services[`$k].r = `$true; Write-Host "  detected: `$(`$services[`$k].n)" -F Green } }
+foreach (`$k in `$services.Keys) {
+  if (tp `$services[`$k].p) {
+    `$services[`$k].r = `$true
+    Write-Host "  detected: `$(`$services[`$k].n)" -F Green
+  }
+}
 
 while (`$true) {
   Menu
