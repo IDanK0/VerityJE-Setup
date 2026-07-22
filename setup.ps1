@@ -63,20 +63,27 @@ if ($freeGB -gt 0 -and $freeGB -lt 15) { I "Warning: less than 15 GB free" }
 if (-not (Press)) { exit 0 }
 
 # === SERVICES ===
-Header "Service Selection"
-Write-Host "  [1] FastKoko       Text-to-Speech    Kokoro-82M    :8880" -F White
-Write-Host "  [2] LiteLLM        AI Gateway        100+ LLMs     :4000" -F White
-Write-Host "  [3] WhisperServer  Speech-to-Text    Whisper       :9000" -F White
-Write-Host "`n  Enter = all   B = back   Q = quit" -F DarkGray
-$ans = Read-Host "  >"
-if ($ans -eq "Q") { exit 0 }
-if ($ans -eq "B") { exit 0 }  # back to top = restart
+$svc = @{K=$true;L=$true;W=$true}
+while ($true) {
+    Header "Service Selection"
+    Write-Host "  [1] FastKoko       Text-to-Speech    Kokoro-82M  :8880  " -F White -NoNewline
+    Write-Host $(if($svc.K){"ON"}else{"OFF"}) -F $(if($svc.K){"Green"}else{"DarkGray"})
+    Write-Host "  [2] LiteLLM        AI Gateway        100+ LLMs   :4000  " -F White -NoNewline
+    Write-Host $(if($svc.L){"ON"}else{"OFF"}) -F $(if($svc.L){"Green"}else{"DarkGray"})
+    Write-Host "  [3] WhisperServer  Speech-to-Text    Whisper     :9000  " -F White -NoNewline
+    Write-Host $(if($svc.W){"ON"}else{"OFF"}) -F $(if($svc.W){"Green"}else{"DarkGray"})
+    Write-Host "`n  Press 1/2/3 to toggle  |  Enter to confirm  |  B back  |  Q quit" -F DarkGray
+    $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
+    if ($k -eq "Q") { exit 0 }
+    if ($k -eq "B") { return }
+    if ($k -eq "1") { $svc.K = -not $svc.K }
+    if ($k -eq "2") { $svc.L = -not $svc.L }
+    if ($k -eq "3") { $svc.W = -not $svc.W }
+    if ($k -eq "`r" -or $k -eq "`n") { break }
+}
 
-$svc = @{}
-if ($ans -eq "" -or $ans -match "1") { $svc.K = $true }
-if ($ans -eq "" -or $ans -match "2") { $svc.L = $true }
-if ($ans -eq "" -or $ans -match "3") { $svc.W = $true }
-if ($svc.Count -eq 0) { Write-Host "  No services selected." -F Red; Read-Host; exit 1 }
+$any = $svc.K -or $svc.L -or $svc.W
+if (-not $any) { Write-Host "`n  No services selected." -F Red; Start-Sleep 1; exit 1 }
 
 Write-Host "`n  Installing:" -F $C
 if ($svc.K) { Write-Host "    + FastKoko (TTS)" -F White }
