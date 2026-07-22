@@ -1,4 +1,4 @@
-<# Verity JE Setup - AI Backend Installer #>
+﻿<# Verity JE Setup - AI Backend Installer #>
 [CmdletBinding()] param([string]$Path)
 Clear-Host
 if (-not $Path) { $Path = Split-Path -Parent $MyInvocation.MyCommand.Path }
@@ -7,13 +7,13 @@ $ErrorActionPreference = "Continue"
 $AppTitle = "Verity JE Setup"
 $C = "Yellow"  # user requested #e9de17 - Yellow is closest
 
-function Header { param([string]$t,[string]$s)
+function Header { param([string]$t)
     Clear-Host
-    Write-Host "`n  [Verity JE]" -ForegroundColor $C
+    Write-Host "`n  Verity JE" -ForegroundColor $C
     Write-Host "  $t" -ForegroundColor White
-    if ($s) { Write-Host "  $s" -ForegroundColor DarkGray }
     Write-Host ""
 }
+function Sub { if ($args.Count) { Write-Host "  $($args[0])" -ForegroundColor DarkGray } }
 function S { param($n,$total,$msg)
     Write-Host "  [$n/$total] $msg" -NoNewline -ForegroundColor $C
 }
@@ -33,7 +33,7 @@ function Download {
 function Press { Write-Host "`n  [Enter] continue  [B] back  [Q] quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
 
 # === DETECT ===
-Header "$AppTitle" "System Detection"
+Header "System Detection"
 
 $hasGit = T git; $hasPy = T python; if ($hasPy) { $pyVer = & python --version 2>&1 }; $hasUv = T uv
 
@@ -63,7 +63,7 @@ if ($freeGB -gt 0 -and $freeGB -lt 15) { I "Warning: less than 15 GB free" }
 if (-not (Press)) { exit 0 }
 
 # === SERVICES ===
-Header "$AppTitle" "Service Selection"
+Header "Service Selection"
 Write-Host "  [1] FastKoko       Text-to-Speech    Kokoro-82M    :8880" -F White
 Write-Host "  [2] LiteLLM        AI Gateway        100+ LLMs     :4000" -F White
 Write-Host "  [3] WhisperServer  Speech-to-Text    Whisper       :9000" -F White
@@ -85,7 +85,7 @@ if ($svc.W) { Write-Host "    + WhisperServer (STT)" -F White }
 if (-not (Press)) { exit 0 }
 
 # === SYSTEM DEPS ===
-Header "$AppTitle" "System Dependencies"
+Header "System Dependencies"
 S 1 2 "Git"; if ($hasGit) { OK } else { SKIP; I "winget install Git.Git" }
 S 2 2 "Setup directory"; try { New-Item -ItemType Dir -Path $Path -Force | Out-Null; OK } catch { ERR $_.Exception.Message; Read-Host; exit 1 }
 if (-not (Press)) { exit 0 }
@@ -97,7 +97,7 @@ if ($svc.K) {
     $kModel = Join-Path $kDir "api\src\models\v1_0\kokoro-v1_0.pth"
     $total = 5; $n = 0
 
-    Header "$AppTitle" "FastKoko - Kokoro TTS"
+    Header "FastKoko - Kokoro TTS"
     S (++$n) $total "Clone repository"
     if (Test-Path (Join-Path $kDir "api\src\main.py")) { OK; I "already cloned" }
     else {
@@ -150,7 +150,7 @@ if ($svc.K) {
 
 # === LITELLM ===
 if ($svc.L) {
-    Header "$AppTitle" "LiteLLM - AI Gateway"
+    Header "LiteLLM - AI Gateway"
     S 1 3 "LiteLLM proxy"
     if (T litellm) { $ver = & litellm --version 2>&1; OK; I $ver }
     else {
@@ -203,7 +203,7 @@ if ($svc.W) {
     elseif ($ramGB -lt 16) { $wModel = "tiny" }
 
     $total = 4; $n = 0
-    Header "$AppTitle" "WhisperServer - STT ($wModel)"
+    Header "WhisperServer - STT ($wModel)"
 
     S (++$n) $total "Python 3.10 virtual environment"
     if (Test-Path $wPy) { OK; I "already exists" }
@@ -255,13 +255,13 @@ if ($svc.W) {
 }
 
 # === SCRIPTS ===
-Header "$AppTitle" "Generating Launcher Scripts"
+Header "Generating Launcher Scripts"
 S 1 1 "Generate all .bat and .ps1 files"
 . "$PSScriptRoot\_generate_scripts.ps1" -VerityTMPath $Path -WhisperModel $wModel
 OK
 
 # === FINAL ===
-Header "$AppTitle" "Setup Complete!"
+Header "Setup Complete!"
 Write-Host "  Location: $Path`n" -F White
 if ($svc.K) { Write-Host "  FastKoko (TTS)   -> http://127.0.0.1:8880/v1/  | FastKoko.bat" -F Green }
 if ($svc.L) { Write-Host "  LiteLLM (AI)     -> http://127.0.0.1:4000/v1/  | LiteLLM.bat" -F Green }
@@ -281,3 +281,4 @@ if ($launch -eq "Y") {
 Write-Host "`n  Done." -F Green
 Write-Host "  Press any key to exit..." -F DarkGray
 [Console]::ReadKey($true) | Out-Null
+
