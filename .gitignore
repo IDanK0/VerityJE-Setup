@@ -1,0 +1,16 @@
+# Venvs/*
+Kokoro-FastAPI/.venv/
+Kokoro-FastAPI/api/src/models/
+WhisperServer/.venv/
+WhisperServer/whisper_models/
+WhisperServer/__pycache__/
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temp
+*.log
+*.pyc
+__pycache__/
