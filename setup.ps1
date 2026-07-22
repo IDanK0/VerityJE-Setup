@@ -30,7 +30,7 @@ function Download {
     return (Test-Path $out) -and (Get-Item $out).Length -gt 0
 }
 
-function Press { Write-Host "`n  enter: continue | B: back | Q: quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
+function Press { Write-Host "`n  [Enter] continue  [B] back  [Q] quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
 
 # === DETECT ===
 Header "System Detection"
@@ -78,7 +78,7 @@ while ($true) {
         Write-Host "  $prefix $chk $name" -F White -NoNewline
         Write-Host "  $desc" -F DarkGray
     }
-    Write-Host "`n  arrows: move | space: toggle | enter: confirm | B: back | Q: quit" -F DarkGray
+    Write-Host "`n  [Up/Down] move  [Space] toggle  [Enter] confirm  [B] back  [Q] quit" -F DarkGray
 
     $ki = [Console]::ReadKey($true)
     if ($ki.Key -eq "Q") { exit 0 }
