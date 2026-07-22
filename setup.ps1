@@ -17,7 +17,7 @@ function spn($label, $step, $total, [scriptblock]$sb, $xa = @()) {
         $el = [math]::Floor($sw.Elapsed.TotalSeconds)
         $ts = if ($el -gt 60) { "$([math]::Floor($el/60))m$($el%60)s" } else { "${el}s" }
         Write-Host ("`r  [{0}] {1}{2}...  ({3})" -f $c[$i % 4], $pf, $label, $ts) -NoNewline -F $Wh
-        Start-Sleep 200; $i++
+        Start-Sleep -Milliseconds 200; $i++
     }
     $el = [math]::Floor($sw.Elapsed.TotalSeconds)
     $ts = if ($el -gt 60) { "$([math]::Floor($el/60))m$($el%60)s" } else { "${el}s" }
