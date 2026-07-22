@@ -100,8 +100,19 @@ if (-not $hasGit -or -not $hasUv -or (-not $espeakPath -and $svc.K)) { phase "Sy
         Write-Host "  Git installed" -F $Gn; $hasGit = $true
     }
     if (-not $hasUv) {
-        $ok = Install-WithWingetOrUrl "AstralSoftware.uv" "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc-installer.exe" "uv" "uv"
-        if (-not $ok) { Write-Host "  uv failed." -F $Rd; Read-Host; exit 1 }
+        if (T winget) {
+            winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+            $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+        } else {
+            Write-Host "  Downloading uv..." -F $Wh
+            $msi = "$env:TEMP\uv-installer.msi"
+            for ($r = 1; $r -le 3; $r++) {
+                try { Invoke-WebRequest -Uri "https://github.com/astral-sh/uv/releases/download/0.5.29/uv-x86_64-pc-windows-msvc.msi" -OutFile $msi -TimeoutSec 120 -ErrorAction Stop; break } catch { if ($r -eq 3) { throw } Start-Sleep 5 }
+            }
+            Start-Process msiexec -Arg "/i", $msi, "/quiet", "/norestart" -Wait; Remove-Item $msi -EA SilentlyContinue
+            $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+        }
+        if (-not (T uv)) { Write-Host "  uv failed." -F $Rd; Read-Host; exit 1 }
         Write-Host "  uv installed" -F $Gn; $hasUv = $true; $bestPy = Get-BestPython; $uvBin = Get-UvBin
     }
     if (-not $espeakPath -and $svc.K) {
