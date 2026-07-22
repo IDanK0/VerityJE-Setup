@@ -22,7 +22,7 @@ function Header {
     Clear-Host
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host ([char]0x2588 * 3) -ForegroundColor Cyan -NoNewline
+    Write-Host ("$([char]0x2588)" * 3) -ForegroundColor Cyan -NoNewline
     Write-Host "  $title" -ForegroundColor White
     if ($subtitle) { Write-Host "      $subtitle" -ForegroundColor DarkGray }
     Write-Host ""
