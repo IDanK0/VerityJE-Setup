@@ -30,7 +30,7 @@ function Download {
     return (Test-Path $out) -and (Get-Item $out).Length -gt 0
 }
 
-function Press { Write-Host "`n  [B] back  [Q] quit  [Enter] continue" -F DarkGray; $k = Read-Host "  >"; if ($k -eq "Q") { Write-Host "  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
+function Press { Write-Host "`n  [Enter] continue  [B] back  [Q] quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
 
 # === DETECT ===
 Header "$AppTitle" "System Detection"
@@ -166,8 +166,8 @@ if ($svc.L) {
     if (T ollama) { OK; I "already installed" }
     else {
         Write-Host "`n  Ollama lets you run LLMs locally (private, no internet)." -F White
-        $a = Read-Host "  Install? [Y/n]"
-        if ($a -ne "n") {
+        Write-Host "  Install Ollama? [Y/n]" -F Yellow; $b = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
+        if ($b -ne "N") {
             $tmp = Join-Path $env:TEMP "OllamaSetup.exe"
             I "Downloading..."
             if (Download "https://ollama.com/download/ollama-windows-amd64.exe" $tmp) {
@@ -267,9 +267,9 @@ if ($svc.K) { Write-Host "  FastKoko (TTS)   -> http://127.0.0.1:8880/v1/  | Fas
 if ($svc.L) { Write-Host "  LiteLLM (AI)     -> http://127.0.0.1:4000/v1/  | LiteLLM.bat" -F Green }
 if ($svc.W) { Write-Host "  Whisper (STT)    -> http://127.0.0.1:9000/v1/  | WhisperServer.bat ($wModel)" -F Green }
 Write-Host ""
-Write-Host "  Launch services now?" -F $C
-Write-Host "  [Y] Start Manager.bat now     [N] Exit (run Manager.bat later)" -F White
-$launch = Read-Host "  >"
+Write-Host "`n  Launch services now?" -F $C
+Write-Host "  [Y] Start Manager.bat     [N] Exit" -F White
+$launch = [Console]::ReadKey($true).KeyChar.ToString().ToUpper()
 if ($launch -eq "Y") {
     Write-Host "  Starting Manager.bat..." -F $C
     Start-Process powershell -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $Path "Manager.bat")
@@ -279,4 +279,5 @@ if ($launch -eq "Y") {
     Write-Host "    .\Manager.bat" -F White
 }
 Write-Host "`n  Done." -F Green
-Read-Host "  Press Enter to exit"
+Write-Host "  Press any key to exit..." -F DarkGray
+[Console]::ReadKey($true) | Out-Null
