@@ -276,10 +276,10 @@ if ($svc.K) {
         Write-Host "  skip  [2/5] Environment" -F $Dg
     } else {
         Write-Host "  [2/5] Creating Python environment ($bestPy)..." -F $Wh
-        Set-Location $kD
+        Push-Location $kD
         $venvOut = & uv venv .venv --python $bestPy --seed 2>&1
         if (-not (Test-Path ".venv\Scripts\python.exe")) { die "venv: $venvOut" }
-        Set-Location $startDir
+        Pop-Location
         Write-Host "  done  [2/5] Environment" -F $Gn
     }
 
@@ -288,13 +288,13 @@ if ($svc.K) {
         Write-Host "  skip  [3/5] Dependencies" -F $Dg
     } else {
         Write-Host "  [3/5] Installing dependencies..." -F $Wh
-        Set-Location $kD
+        Push-Location $kD
         Pip-Run $kD @("install", "--upgrade", "pip", "-q")
         Pip-Run $kD @("install", "cython<3.0", "-q")
         Pip-Run $kD @("install", "-e", ".[cpu]")
         Pip-Run $kD @("uninstall", "torch", "-y", "-q")
         Pip-Run $kD @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$cudaIdx", "--timeout", "600", "-q")
-        Set-Location $startDir
+        Pop-Location
         Write-Host "  done  [3/5] Dependencies" -F $Gn
     }
 
@@ -361,10 +361,10 @@ if ($svc.W) {
         Write-Host "  skip  [1/3] Environment" -F $Dg
     } else {
         Write-Host "  [1/3] Creating Python environment ($bestPy)..." -F $Wh
-        Set-Location $wD
+        Push-Location $wD
         $venvOut = & uv venv .venv --python $bestPy --seed 2>&1
         if (-not (Test-Path ".venv\Scripts\python.exe")) { die "venv: $venvOut" }
-        Set-Location $startDir
+        Pop-Location
         Write-Host "  done  [1/3] Environment" -F $Gn
     }
 
@@ -373,14 +373,14 @@ if ($svc.W) {
         Write-Host "  skip  [2/3] Dependencies" -F $Dg
     } else {
         Write-Host "  [2/3] Installing dependencies..." -F $Wh
-        Set-Location $wD
+        Push-Location $wD
         Pip-Run $wD @("install", "--upgrade", "pip", "-q")
         Pip-Run $wD @("install", "openai-whisper>=1.1.10", "uvicorn[standard]", "fastapi", "pydantic", "python-multipart", "mutagen", "-q")
         if ($hasGPU) {
             Pip-Run $wD @("uninstall", "torch", "-y", "-q")
             Pip-Run $wD @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$cudaIdx", "--timeout", "600", "-q")
         }
-        Set-Location $startDir
+        Pop-Location
         Write-Host "  done  [2/3] Dependencies" -F $Gn
     }
 
