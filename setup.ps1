@@ -30,7 +30,7 @@ function Download {
     return (Test-Path $out) -and (Get-Item $out).Length -gt 0
 }
 
-function Press { Write-Host "`n  [Enter] continue  [B] back  [Q] quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
+function Press { Write-Host "`n  enter: continue | B: back | Q: quit" -F DarkGray; $k = [Console]::ReadKey($true).KeyChar.ToString().ToUpper(); if ($k -eq "Q") { Write-Host "`n  Aborted." -F Red; exit 0 }; if ($k -eq "B") { return $false }; return $true }
 
 # === DETECT ===
 Header "System Detection"
@@ -71,7 +71,6 @@ $cursor = 0
 
 while ($true) {
     Header "Service Selection"
-    Write-Host "  Use arrows to move, Space to toggle, Enter to confirm`n" -F DarkGray
     for ($i = 0; $i -lt 3; $i++) {
         $prefix = if ($i -eq $cursor) { " >>" } else { "   " }
         $chk = if ($svc[$svcKeys[$i]]) { "[X]" } else { "[ ]" }
@@ -79,7 +78,7 @@ while ($true) {
         Write-Host "  $prefix $chk $name" -F White -NoNewline
         Write-Host "  $desc" -F DarkGray
     }
-    Write-Host "`n  [B] back  [Q] quit" -F DarkGray
+    Write-Host "`n  arrows: move | space: toggle | enter: confirm | B: back | Q: quit" -F DarkGray
 
     $ki = [Console]::ReadKey($true)
     if ($ki.Key -eq "Q") { exit 0 }
