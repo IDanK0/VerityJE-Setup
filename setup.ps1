@@ -57,10 +57,14 @@ while ($true) {
     try { $vg = Get-CimInstance Win32_VideoController -EA SilentlyContinue; if ($vg) { foreach ($Gn in $vg) { if ($Gn.Name -match "NVIDIA|GeForce") { $hasGPU = $true; $gpuName = $Gn.Name; break } } } } catch { }
     if ($hasGPU) { try { $nv = & nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>&1; if ($nv -match '(\d+)') { $vramGB = [math]::Floor([int]$Matches[1]/1024) } } catch { if ($vramGB -lt 1) { $vramGB = 4 } } }
     $ramGB = 0; try { $cs = Get-CimInstance Win32_ComputerSystem -EA SilentlyContinue; if ($cs) { $ramGB = [math]::Floor($cs.TotalPhysicalMemory/1GB) } } catch { }
-    Write-Host "  Git    " -NoNewline -F $Dg; Write-Host $(if($hasGit){"found"}else{"missing"}) -F $(if($hasGit){$Gn}else{$Rd})
-    Write-Host "  Python " -NoNewline -F $Dg; Write-Host $(if($hasPy){$pyVer}else{"missing"}) -F $(if($hasPy){$Gn}else{$Rd})
-    Write-Host "  uv     " -NoNewline -F $Dg; Write-Host $(if($hasUv){"found"}else{"missing"}) -F $(if($hasUv){$Gn}else{$Rd})
-    Write-Host "  GPU    " -NoNewline -F $Dg; Write-Host $(if($hasGPU){"$gpuName ($vramGB GB)"}else{"CPU only"}) -F $(if($hasGPU){$Gn}else{$Dg})
+    $colorOk = if($hasGit) { $Gn } else { $Rd }
+    Write-Host "  Git    " -NoNewline -F $Dg; Write-Host $(if($hasGit){"found"}else{"missing"}) -F $colorOk
+    $colorOk = if($hasPy) { $Gn } else { $Rd }
+    Write-Host "  Python " -NoNewline -F $Dg; Write-Host $(if($hasPy){$pyVer}else{"missing"}) -F $colorOk
+    $colorOk = if($hasUv) { $Gn } else { $Rd }
+    Write-Host "  uv     " -NoNewline -F $Dg; Write-Host $(if($hasUv){"found"}else{"missing"}) -F $colorOk
+    $colorOk = if($hasGPU) { $Gn } else { $Dg }
+    Write-Host "  GPU    " -NoNewline -F $Dg; Write-Host $(if($hasGPU){"$gpuName ($vramGB GB)"}else{"CPU only"}) -F $colorOk
     Write-Host "  RAM    " -NoNewline -F $Dg; Write-Host "$ramGB GB" -F $Wh
     Write-Host "`n  [Enter] continue  [Q] quit" -F $Dg; $k = K; if ($k.Key -eq "Q") { exit 0 }; if ($k.Key -eq "Enter") { break }
 }
