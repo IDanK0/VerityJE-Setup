@@ -2,54 +2,29 @@
 $venvPython = Join-Path $scriptDir "WhisperServer\.venv\Scripts\python.exe"
 $serverPy = Join-Path $scriptDir "WhisperServer\server.py"
 
-if (-not (Test-Path $venvPython)) {
-    Write-Host "ERROR: WhisperServer virtual environment not found." -ForegroundColor Red
-    Write-Host "Run setup.ps1 first or make sure WhisperServer is properly installed." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-if (-not (Test-Path $serverPy)) {
-    Write-Host "ERROR: WhisperServer server.py not found." -ForegroundColor Red
-    Write-Host "Run setup.ps1 first." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
-}
+if (!(Test-Path $venvPython)) { Write-Host "ERROR: WhisperServer not found. Run setup.ps1 first." -F Red; Read-Host; exit 1 }
+if (!(Test-Path $serverPy)) { Write-Host "ERROR: server.py not found. Run setup.ps1 first." -F Red; Read-Host; exit 1 }
 
 Write-Host ""
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "  Whisper Server - Speech to Text" -ForegroundColor Cyan
-Write-Host "  Model: large-v3-turbo" -ForegroundColor Cyan
-Write-Host "  Port: 9000" -ForegroundColor Cyan
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "================================================" -F Yellow
+Write-Host "  WhisperServer - STT (large-v3-turbo)  :9000" -F Yellow
+Write-Host "================================================" -F Yellow
 
-Write-Host "Starting Whisper server..." -ForegroundColor Yellow
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '' ''" -WindowStyle Minimized
+Write-Host "
+Starting server..." -F Yellow
+$cmd = "& $venvPython $serverPy"
+Start-Process powershell -NoExit -WindowStyle Minimized -Arg "-NoExit","-Command",$cmd
 
-Write-Host "Waiting for server to be ready (model loading may take a minute)..." -ForegroundColor Yellow
-$ready = $false
+Write-Host "Waiting (model may take a minute to load)..." -F Yellow
+$rd = $false
 for ($i = 1; $i -le 120; $i++) {
     Start-Sleep -Milliseconds 500
-    try {
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1:9000/v1/models" -TimeoutSec 2 -ErrorAction SilentlyContinue
-        if ($r.StatusCode -eq 200) { $ready = $true; break }
-    } catch {}
+    try { $r = Invoke-WebRequest "http://127.0.0.1:9000/v1/models" -TimeoutSec 2 -EA SilentlyContinue; if ($r.StatusCode -eq 200) { $rd = $true; break } } catch {}
 }
+if (!$rd) { Write-Host "ERROR: Server not started" -F Red; Read-Host; exit 1 }
 
-if (-not $ready) {
-    Write-Host "ERROR: Server did not start within 60 seconds." -ForegroundColor Red
-    Write-Host "Check the minimized server window for errors." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-
-Write-Host ""
-Write-Host "SERVER READY!" -ForegroundColor Green
-Write-Host "API:  http://127.0.0.1:9000/v1/" -ForegroundColor Yellow
-Write-Host "Docs: http://127.0.0.1:9000/docs" -ForegroundColor Yellow
-Write-Host ""
-Write-Host "Example usage:" -ForegroundColor Cyan
-Write-Host '  curl -X POST http://127.0.0.1:9000/v1/audio/speech -F "file=@audio.mp3"' -ForegroundColor DarkGray
-Write-Host ""
-Read-Host "Press Enter to close"
+Write-Host "SERVER READY!" -F Green
+Write-Host "API: http://127.0.0.1:9000/v1/" -F Yellow
+Write-Host "  curl -X POST http://127.0.0.1:9000/v1/audio/speech -F "file=@audio.mp3"" -F DarkGray
+Read-Host "
+Press Enter"
