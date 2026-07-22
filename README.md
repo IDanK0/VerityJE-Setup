@@ -1,4 +1,4 @@
-﻿# VerityTM
+﻿# Verity JE Setup
 
 > **One-click AI backend for [Verity JE](https://www.curseforge.com/minecraft/mc-mods/verity-je) â€” the Minecraft mod by [VarmiteYT](https://www.youtube.com/@varmite), official adaptation of [ThatMob](https://www.youtube.com/@ThatMob)'s Verity.**
 
@@ -6,7 +6,7 @@
 [![Modrinth](https://img.shields.io/badge/Modrinth-Verity_JE-1bd96a?logo=modrinth)](https://modrinth.com/mod/verity-je-official)
 [![Discord](https://img.shields.io/badge/Discord-join-5865f2?logo=discord)](https://discord.gg/f6DpBDVjMq)
 
-VerityTM sets up all the AI infrastructure the Verity JE mod needs: speech-to-text (so Verity can hear you), text-to-speech (so Verity can talk back), and the AI gateway (so Verity can think). Cloud or fully local with Ollama â€” you choose.
+VerityJE-Setup sets up all the AI infrastructure the Verity JE mod needs: speech-to-text (so Verity can hear you), text-to-speech (so Verity can talk back), and the AI gateway (so Verity can think). Cloud or fully local with Ollama â€” you choose.
 
 ---
 
@@ -65,7 +65,7 @@ Player hears â-„â”€â”€ FastKoko (TTS) â-„â”€â”€ text �
 ## Project Structure
 
 ```
-VerityTM/
+VerityJE-Setup/
 â”œâ”€â”€ setup.ps1                 # One-click installer
 â”œâ”€â”€ _generate_scripts.ps1     # Launcher generator
 â”œâ”€â”€ Manager.bat / .ps1        # Master control panel
@@ -87,4 +87,5 @@ VerityTM/
 - **ThatMob (creator)** â€” https://www.youtube.com/@ThatMob
 - **VarmiteYT (mod author)** â€” https://www.youtube.com/@varmite
 - **Discord** â€” https://discord.gg/f6DpBDVjMq
+
 
