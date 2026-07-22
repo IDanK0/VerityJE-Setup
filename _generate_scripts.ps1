@@ -336,7 +336,7 @@ Write-Host "================================================" -ForegroundColor C
 Write-Host ""
 
 Write-Host "Starting Whisper server..." -ForegroundColor Yellow
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '$venvPython' '$serverPy'" -WindowStyle Minimized
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "& '``$venvPython' '``$serverPy'" -WindowStyle Minimized
 
 Write-Host "Waiting for server to be ready (model loading may take a minute)..." -ForegroundColor Yellow
 `$ready = `$false

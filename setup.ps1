@@ -11,7 +11,7 @@
 [CmdletBinding()]
 param([string]$Path)
 
-if (-not $Path) { $Path = "$env:USERPROFILE\VerityTM" }
+if (-not $Path) { $Path = Split-Path -Parent $MyInvocation.MyCommand.Path }
 $ErrorActionPreference = "Continue"
 Set-StrictMode -Version Latest
 
@@ -66,11 +66,11 @@ try {
     }
 } catch { }
 
-if ($hasNvidia -and ($nvidiaVram -eq 0 -or $nvidiaVram -gt 100)) {
+if ($hasNvidia) {
     try {
         $nvOut = & nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>&1
         if ($nvOut -match '(\d+)') { $nvidiaVram = [math]::Floor([int]$Matches[1] / 1024) }
-    } catch { $nvidiaVram = 6 }
+    } catch { }
 }
 
 $hasAMD = $false
