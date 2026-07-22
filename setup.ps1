@@ -255,9 +255,12 @@ if ($svc.K) {
     } else {
         spn "Creating Python environment ($bestPy)" 2 5 {
             param($P, $S)
-            Set-Location (Join-Path $P "Kokoro-FastAPI")
-            & uv venv .venv --python $args[0] --seed 2>&1 | Out-Null
-            if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "venv failed" }
+            $d = Join-Path $P "Kokoro-FastAPI"
+            Set-Location $d
+            $err = & uv venv .venv --python $args[0] --seed 2>&1
+            if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) {
+                throw "uv venv failed. Try manually: cd $d ; uv venv .venv --python $args[0] --seed | Err: $err"
+            }
         } -ArgumentList $bestPy
     }
 
@@ -366,9 +369,12 @@ if ($svc.W) {
     } else {
         spn "Creating Python environment ($bestPy)" 1 3 {
             param($P, $S)
-            Set-Location (Join-Path $P "WhisperServer")
-            & uv venv .venv --python $args[0] --seed 2>&1 | Out-Null
-            if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "venv failed" }
+            $d = Join-Path $P "WhisperServer"
+            Set-Location $d
+            $err = & uv venv .venv --python $args[0] --seed 2>&1
+            if (-not (Test-Path (Join-Path $d ".venv\Scripts\python.exe"))) {
+                throw "uv venv failed. Try: cd $d ; uv venv .venv --python $args[0] --seed | Err: $err"
+            }
         } -ArgumentList $bestPy
     }
 
