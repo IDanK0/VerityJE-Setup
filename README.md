@@ -1,60 +1,103 @@
 # Verity JE Setup
 
-> One-click AI backend for [Verity JE](https://www.curseforge.com/minecraft/mc-mods/verity-je) - the Minecraft mod by [VarmiteYT](https://www.youtube.com/@varmite), official adaptation of [ThatMob](https://www.youtube.com/@ThatMob)'s Verity.
-
 [![CurseForge](https://img.shields.io/badge/CurseForge-Verity_JE-f16436?logo=curseforge)](https://www.curseforge.com/minecraft/mc-mods/verity-je)
 [![Modrinth](https://img.shields.io/badge/Modrinth-Verity_JE-1bd96a?logo=modrinth)](https://modrinth.com/mod/verity-je-official)
 [![Discord](https://img.shields.io/badge/Discord-join-5865f2?logo=discord)](https://discord.gg/f6DpBDVjMq)
 
-Sets up all the AI infrastructure the Verity JE mod needs: speech-to-text, text-to-speech, and the AI gateway. Cloud or fully local with Ollama.
+One-click AI backend for [Verity JE](https://www.curseforge.com/minecraft/mc-mods/verity-je), the Minecraft mod by [VarmiteYT](https://www.youtube.com/@varmite) based on [ThatMob](https://www.youtube.com/@ThatMob)'s Verity.
 
----
+## Table of Contents
 
-## What Gets Installed
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [What Gets Installed](#what-gets-installed)
+- [How It Works](#how-it-works)
+- [Usage](#usage)
+  - [Manager Controls](#manager-controls)
+  - [Individual Launchers](#individual-launchers)
+- [Hardware Detection](#hardware-detection)
+- [Troubleshooting](#troubleshooting)
+- [Project Structure](#project-structure)
+- [Links](#links)
 
-| Service | What Verity Uses It For | Port |
-|---------|------------------------|------|
-| WhisperServer | Speech-to-Text (Verity hears you) | 9000/v1/ |
-| FastKoko | Text-to-Speech (Verity speaks to you) | 8880/v1/ |
-| LiteLLM | AI Gateway (Groq / Ollama / any LLM) | 4000/v1/ |
-| Ollama | Local LLM runner (optional, offline AI) | 11434 |
+## Prerequisites
 
----
+- Windows 10 or 11
+- Internet connection
+- That is it. Everything else (Git, uv, Python 3.10, eSpeak NG, CUDA torch, Ollama) is installed automatically.
 
 ## Quick Start
 
-`powershell
+```powershell
 powershell -ExecutionPolicy Bypass -File setup.ps1
 .\Manager.bat
-`
+```
 
-Configure Verity JE to point at http://127.0.0.1:4000/v1/ and you are done.
+The installer detects your hardware, asks which services you want, and downloads everything. Then point the Verity JE mod to `http://127.0.0.1:4000/v1/`.
 
----
+## What Gets Installed
 
-## How Verity JE Uses These Services
+| Service | Purpose | Port |
+|---------|---------|------|
+| WhisperServer | Speech-to-Text | `9000/v1/` |
+| FastKoko | Text-to-Speech (Kokoro-82M) | `8880/v1/` |
+| LiteLLM | AI Gateway (Groq / Ollama / any LLM) | `4000/v1/` |
+| Ollama | Local LLM runner (optional) | `11434` |
 
-`
-Player voice --> Whisper (STT) --> text --> LiteLLM --> Groq / Ollama
-                                                    |
-Player hears <-- FastKoko (TTS) <-- text <-----------|
-`
+All services expose OpenAI-compatible APIs.
 
-- **Cloud mode**: LiteLLM routes to Groq (fast, no GPU, needs API key)
-- **Local mode**: LiteLLM routes to Ollama running a local model (private, offline)
+## How It Works
 
----
+```
+Player voice --> Whisper --> text --> LiteLLM --> Groq / Ollama --> text --> FastKoko --> Player hears
+```
+
+Two modes are supported:
+
+- **Cloud**: LiteLLM routes to Groq. Fast, no GPU needed. Requires a Groq API key.
+- **Local**: LiteLLM routes to Ollama running a local model. Private, fully offline.
+
+## Usage
+
+### Manager Controls
+
+```
+[S] Start all    [A] Stop all    [R] Restart all
+[F] FastKoko     [I] LiteLLM     [W] Whisper
+[L] Change LiteLLM model         [K] List Kokoro voices
+[Q] Quit
+```
+
+### Individual Launchers
+
+Each service can also be started separately:
+
+```powershell
+.\FastKoko.bat       # http://127.0.0.1:8880/v1/
+.\LiteLLM.bat        # http://127.0.0.1:4000/v1/
+.\WhisperServer.bat  # http://127.0.0.1:9000/v1/
+```
 
 ## Hardware Detection
 
-| Hardware | Whisper Model | Backend |
-|----------|--------------|---------|
-| NVIDIA GPU (6+ GB) | large-v3-turbo | CUDA |
-| NVIDIA GPU (4-6 GB) | medium | CUDA |
-| NVIDIA GPU (<4 GB) | base | CUDA |
-| AMD / CPU only | base or tiny | CPU |
+`setup.ps1` scans your system and picks the right configuration automatically.
 
----
+| Hardware | Whisper Model | Torch |
+|----------|--------------|-------|
+| NVIDIA GPU (6 GB or more) | `large-v3-turbo` | CUDA |
+| NVIDIA GPU (4 to 6 GB) | `medium` | CUDA |
+| NVIDIA GPU (under 4 GB) | `base` | CUDA |
+| AMD GPU or CPU only | `base` or `tiny` | CPU |
+
+Disk space and RAM are also checked. You get a warning if below 15 GB free.
+
+## Troubleshooting
+
+- **Port already in use**: Stop any running servers and try again.
+- **Model download failed**: The installer retries automatically. For manual download, check the individual service documentation.
+- **CUDA not available**: If you have an NVIDIA GPU but CUDA is not detected, update your NVIDIA drivers.
+- **eSpeak NG not found**: Install it manually from `winget install eSpeak-NG.eSpeak-NG`.
+- **Ollama service not running**: Start it from the Start Menu or run `ollama serve`.
 
 ## Project Structure
 
@@ -77,13 +120,11 @@ VerityJE-Setup/
 +-- README.md
 ```
 
----
-
 ## Links
 
-- Verity JE on CurseForge: https://www.curseforge.com/minecraft/mc-mods/verity-je
-- Verity JE on Modrinth: https://modrinth.com/mod/verity-je-official
-- Verity Mod Wiki: https://veritymod.blog/
-- ThatMob (creator): https://www.youtube.com/@ThatMob
-- VarmiteYT (mod author): https://www.youtube.com/@varmite
-- Discord: https://discord.gg/f6DpBDVjMq
+- [Verity JE on CurseForge](https://www.curseforge.com/minecraft/mc-mods/verity-je)
+- [Verity JE on Modrinth](https://modrinth.com/mod/verity-je-official)
+- [Verity Mod Wiki](https://veritymod.blog/)
+- [ThatMob on YouTube](https://www.youtube.com/@ThatMob)
+- [VarmiteYT on YouTube](https://www.youtube.com/@varmite)
+- [Discord Server](https://discord.gg/f6DpBDVjMq)
