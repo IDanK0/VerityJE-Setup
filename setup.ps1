@@ -44,12 +44,18 @@ function Get-CudaIndex {
     try {
         $nv = & nvidia-smi 2>&1 | Out-String
         if ($nv -match "CUDA UMD Version:\s*(\d+)\.(\d+)") {
-            $major = $Matches[1]; $minor = $Matches[2]
-            # PyTorch CUDA wheels: cu124, cu126, cu128, etc.
-            return "cu${major}${minor}"
+            $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+            # Map to available PyTorch CUDA wheels
+            $available = @("cu129", "cu128", "cu126", "cu124", "cu121")
+            $target = "cu${major}${minor}"
+            foreach ($av in $available) {
+                $avVer = [int]($av -replace 'cu','').Substring(0,2) * 100 + [int]($av -replace 'cu','').Substring(2)
+                $reqVer = $major * 100 + $minor
+                if ($avVer -le $reqVer) { return $av }
+            }
+            return $available[-1]
         }
     } catch { }
-    # Fallback: try common versions in descending order
     return "cu128"
 }
 
