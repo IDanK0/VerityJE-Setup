@@ -289,12 +289,13 @@ if ($svc.K) {
     } else {
         Write-Host "  [3/5] Installing dependencies..." -F $Wh
         Push-Location $kD
-        Pip-Run $kD @("install", "--upgrade", "pip", "-q")
-        Pip-Run $kD @("install", "cython<3.0", "-q")
-        Pip-Run $kD @("install", "-e", "$($kD)[cpu]")
-        Pip-Run $kD @("uninstall", "torch", "-y", "-q")
-        Pip-Run $kD @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$cudaIdx", "--timeout", "600", "-q")
-        Pop-Location
+        try {
+            Pip-Run $kD @("install", "--upgrade", "pip", "-q")
+            Pip-Run $kD @("install", "cython<3.0", "-q")
+            Pip-Run $kD @("install", "-e", ".")
+            Pip-Run $kD @("uninstall", "torch", "-y", "-q")
+            Pip-Run $kD @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$cudaIdx", "--timeout", "600", "-q")
+        } finally { Pop-Location }
         Write-Host "  done  [3/5] Dependencies" -F $Gn
     }
 
