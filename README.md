@@ -58,17 +58,22 @@ Player hears <-- FastKoko (TTS) <-- text <-----------|
 
 ## Project Structure
 
-`
+```
 VerityJE-Setup/
-    setup.ps1                 One-click installer
-    _generate_scripts.ps1     Launcher generator
-    Manager.bat / .ps1        Master control panel
-    FastKoko.bat / .ps1       TTS launcher
-    LiteLLM.bat / .ps1        AI Gateway launcher
-    WhisperServer.bat / .ps1  STT launcher
-    WhisperServer/server.py   Whisper API server
+    setup.ps1
+    _generate_scripts.ps1
+    Manager.bat
+    Manager.ps1
+    FastKoko.bat
+    FastKoko.ps1
+    LiteLLM.bat
+    LiteLLM.ps1
+    WhisperServer.bat
+    WhisperLauncher.ps1
+    WhisperServer/server.py
     .gitignore
-`
+    README.md
+```
 
 ---
 
