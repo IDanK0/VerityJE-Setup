@@ -16,8 +16,7 @@ if ((Test-Path `$uvBin) -and (`$env:Path -notlike "*`$uvBin*")) { `$env:Path += 
 
 Write-Host "";Write-Host "================================================" -F Yellow
 Write-Host "  LiteLLM - AI Gateway" -F Yellow
-Write-Host "================================================" -F Yellow
-Write-Host ""
+Write-Host "================================================" -F Yellow;Write-Host ""
 
 `$models = @("gpt-4o (OpenAI)","gpt-4o-mini (OpenAI)","gpt-3.5-turbo (OpenAI)","claude-sonnet-4-20250514","gemini-2.5-flash (Google)","llama-3.3-70b-instruct (Meta)","groq/llama-3.3-70b (Groq)")
 Write-Host "Available models:" -F White
@@ -27,13 +26,11 @@ Write-Host ""; `$c = Read-Host "Choose (number or name)"
 if (`$c -match '^\d+$') { `$id = [int]`$c - 1; if (`$id -ge 0 -and `$id -lt `$models.Count) { `$m = (`$models[`$id] -split '\(')[0].Trim() } else { `$m = "gpt-4o" } } else { `$m = `$c.Trim(); if (!`$m) { `$m = "gpt-4o" } }
 Write-Host "Model: `$m" -F Green
 
-`$keys = @("OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY","GROQ_KEY","HUGGINGFACE_KEY")
-`$fk = `$false; foreach (`$e in `$keys) { if (Test-Path "env:`$e" -and (Get-Item "env:`$e").Value) { `$fk = `$true; break } }
+`$keys = @("OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY","GROQ_KEY","HUGGINGFACE_KEY"); `$fk = `$false; foreach (`$e in `$keys) { if (Test-Path "env:`$e" -and (Get-Item "env:`$e").Value) { `$fk = `$true; break } }
 if (!`$fk) { Write-Host "`nNo API key found." -F Yellow; Write-Host "Enter API key:" -F Yellow; `$k = Read-Host; if (`$k.Trim()) { Set-Item -Path "env:OPENAI_API_KEY" -Value `$k.Trim(); Write-Host "Set OPENAI_API_KEY" -F Green } }
 
 Write-Host ""; Write-Host "Port (default 4000):" -F Yellow; `$p = Read-Host; if (!(`$p -match '^\d+$')) { `$p = "4000" }
-Write-Host "`nStarting on http://127.0.0.1:`$p/v1/" -F Green
-Write-Host "Press Ctrl+C to stop`n" -F DarkGray
+Write-Host "`nStarting on http://127.0.0.1:`$p/v1/" -F Green;Write-Host "Press Ctrl+C to stop`n" -F DarkGray
 `$env:LITELLM_LOG = "INFO"; litellm --model `$m --port `$p
 "@
 
@@ -60,14 +57,13 @@ $($edLine)
 
 Write-Host "";Write-Host "================================================" -F Yellow
 Write-Host "  FastKoko - Kokoro TTS  :8880" -F Yellow
-Write-Host "================================================" -F Yellow
-Write-Host ""
+Write-Host "================================================" -F Yellow;Write-Host ""
 
 Write-Host "Starting server..." -F Yellow
-Start-Process powershell -NoExit -Arg "-NoExit","-Command","`$env:PYTHONUTF8='1';$($edCmd)`$env:MODEL_DIR=`$(`$repoPath+'\api\src\models');`$env:VOICES_DIR=`$(`$repoPath+'\api\src\voices\v1_0');`$env:PYTHONPATH=`$(`$repoPath+';'+`$repoPath+'\api'); & '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
+Start-Process powershell -NoExit -Arg "-NoExit","-Command","`$env:PYTHONUTF8='1';$($edCmd)& '`$vu' api.src.main:app --host 127.0.0.1 --port 8880" -WindowStyle Minimized
 
 Write-Host "Waiting for server..." -F Yellow
-`$rd = `$false;for(`$i=1;`$i -le 50;`$i++){Start-Sleep -Milliseconds 600;try{`$r=Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -EA SilentlyContinue;if(`$r.StatusCode -eq 200){`$rd=`$true;break}}catch{}}
+`$rd = `$false;for(`$i=1;`$i -le 50;`$i++){Start-Sleep -Mil 600;try{`$r=Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -EA SilentlyContinue;if(`$r.StatusCode -eq 200){`$rd=`$true;break}}catch{}}
 if (!`$rd) { Write-Host "ERROR: Server not started" -F Red; Read-Host; exit 1 }
 Write-Host "SERVER READY!" -F Green
 Write-Host "API: http://127.0.0.1:8880/v1/" -F Yellow
@@ -83,7 +79,6 @@ Write-Host "";Write-Host "[OTHER]" -F Magenta;foreach(`$v in `$ot){Write-Host " 
 Write-Host "";Write-Host "Voice [`$dv]:" -F Yellow; `$c = Read-Host "  >"
 if (`$c) { `$id=[int]`$c-1; if(`$id -ge 0 -and `$id -lt `$al.Count){`$sv=`$al[`$id].id}else{`$sv=`$dv} } else { `$sv = `$dv }
 Write-Host "Voice: `$sv" -F Green
-
 Write-Host "`nText (Enter twice to submit):" -F Yellow; `$tl = @(); `$f = `$true
 while (`$true) { if (`$f) { `$l = Read-Host "  >"; `$f = `$false } else { `$l = Read-Host "  > (Enter to submit)" }; if (!`$l.Trim()) { break }; `$tl += `$l }
 `$t = `$tl -join "`n"; if (!`$t.Trim()) { Write-Host "No text" -F Red; Read-Host; exit 0 }
@@ -104,13 +99,12 @@ Set-Content (Join-Path $VerityTMPath "WhisperLauncher.ps1") -Enc UTF8 -Value @"
 `$scriptDir = Split-Path -Parent `$MyInvocation.MyCommand.Path
 `$venvPython = Join-Path `$scriptDir "WhisperServer\.venv\Scripts\python.exe"
 `$serverPy = Join-Path `$scriptDir "WhisperServer\server.py"
-if (!(Test-Path `$venvPython)) { Write-Host "ERROR: WhisperServer not found. Run setup.ps1 first." -F Red; Read-Host; exit 1 }
+if (!(Test-Path `$venvPython)) { Write-Host "ERROR: WhisperServer not found." -F Red; Read-Host; exit 1 }
 if (!(Test-Path `$serverPy)) { Write-Host "ERROR: server.py not found." -F Red; Read-Host; exit 1 }
 
 Write-Host "";Write-Host "================================================" -F Yellow
 Write-Host "  WhisperServer - STT ($WhisperModel)  :9000" -F Yellow
-Write-Host "================================================" -F Yellow
-Write-Host ""
+Write-Host "================================================" -F Yellow;Write-Host ""
 
 Write-Host "Starting server..." -F Yellow
 `$cmd = "& `$venvPython `$serverPy"
@@ -142,11 +136,12 @@ if ((Test-Path `$uvBin) -and (`$env:Path -notlike "*`$uvBin*")) { `$env:Path += 
 `$services = @{
   FastKoko = @{ n = "FastKoko (TTS)"; p = 8880; u = "http://127.0.0.1:8880/v1/"; r = `$false }
   LiteLLM  = @{ n = "LiteLLM (AI)";  p = 4000; u = "http://127.0.0.1:4000/v1/"; r = `$false }
-  Whisper   = @{ n = "Whisper (STT)"; p = 9000; u = "http://127.0.0.1:9000/v1/"; r = `$false }
+  Whisper  = @{ n = "Whisper (STT)"; p = 9000; u = "http://127.0.0.1:9000/v1/"; r = `$false }
 }
 
 function tp(`$p) {
-  try { `$t = New-Object Net.Sockets.TcpClient; `$t.ConnectAsync("127.0.0.1", `$p).Wait(300); `$c = `$t.Client.Connected; `$t.Close(); return `$c } catch { return `$false }
+  try { `$t = New-Object Net.Sockets.TcpClient; `$t.ConnectAsync("127.0.0.1", `$p).Wait(300); `$connected = `$t.Client.Connected; `$t.Close(); return `$connected }
+  catch { return `$false }
 }
 
 function Menu {
@@ -157,32 +152,34 @@ function Menu {
   Write-Host "  [S] Start all  [A] Stop all  [R] Restart all" -F White
   Write-Host ""
   Write-Host "  -- Services --" -F Yellow
-  `$services.GetEnumerator() | Sort Name | ForEach-Object {
-    `$k = `$_.Key; `$s = `$_.Value
+  foreach (`$kv in `$services.GetEnumerator()) {
+    `$k = `$kv.Key; `$s = `$kv.Value
     `$st = if (`$s.r) { "ON " } else { "OFF" }
     `$co = if (`$s.r) { "Green" } else { "Red" }
-    Write-Host "  [`$(`$k.Substring(0,1))] `$(`$s.n,-22) ``$st  `$(`$s.u)" -F `$co
+    Write-Host ("  [{0}] {1,-22} {2}  {3}" -f `$k.Substring(0,1), `$s.n, `$st, `$s.u) -F `$co
   }
   Write-Host ""
   Write-Host "  [Q] Quit" -F Yellow
   Write-Host ""
 }
 
-function StartS(`$n, `$bat) {
-  `$s = `$services[`$n]; if (`$s.r) { Write-Host "  [``$n] already running" -F Yellow; return }
+function StartS(`$name, `$bat) {
+  `$s = `$services[`$name]
+  if (`$s.r) { Write-Host "  [``$name] already running" -F Yellow; return }
   `$b = Join-Path `$scriptDir `$bat
-  if (!(Test-Path `$b)) { Write-Host "  [``$n] script not found" -F Red; return }
-  Write-Host "  [``$n] starting..." -F Yellow
-  `$p = Start-Process powershell -NoExit -Arg "-EP","Bypass","-File",`$b -WindowStyle Minimized -PassThru
+  if (!(Test-Path `$b)) { Write-Host "  [``$name] script not found" -F Red; return }
+  Write-Host "  [``$name] starting..." -F Yellow
+  `$proc = Start-Process powershell -NoExit -Arg "-EP","Bypass","-File",`$b -WindowStyle Minimized -PassThru
   Start-Sleep 2
-  if (tp `$s.p) { `$s.r = `$true; Write-Host "  [``$n] started" -F Green } else { Write-Host "  [``$n] starting (wait)..." -F Yellow }
+  if (tp `$s.p) { `$s.r = `$true; Write-Host "  [``$name] started" -F Green } else { Write-Host "  [``$name] starting..." -F Yellow }
 }
 
-function StopS(`$n) {
-  `$s = `$services[`$n]; if (!`$s.r) { Write-Host "  [``$n] already stopped" -F Yellow; return }
-  Write-Host "  [``$n] stopping..." -F Yellow
+function StopS(`$name) {
+  `$s = `$services[`$name]
+  if (!`$s.r) { Write-Host "  [``$name] already stopped" -F Yellow; return }
+  Write-Host "  [``$name] stopping..." -F Yellow
   Get-NetTCPConnection -LocalPort `$s.p -EA SilentlyContinue | ForEach-Object { Stop-Process -Id `$_.OwningProcess -Force -EA SilentlyContinue }
-  `$s.r = `$false; Write-Host "  [``$n] stopped" -F Red
+  `$s.r = `$false; Write-Host "  [``$name] stopped" -F Red
 }
 
 Write-Host ""
@@ -190,19 +187,19 @@ Write-Host "================================================" -F Yellow
 Write-Host "  Verity JE - Manager" -F Yellow
 Write-Host "================================================" -F Yellow
 Write-Host ""
-  foreach (`$k in `$services.Keys) { if (tp `$services[`$k].p) { `$services[`$k].r = `$true; Write-Host "  detected: `$(`$services[`$k].n)" -F Green } }
+foreach (`$k in `$services.Keys) { if (tp `$services[`$k].p) { `$services[`$k].r = `$true; Write-Host "  detected: `$(`$services[`$k].n)" -F Green } }
 
 while (`$true) {
   Menu
-  `$k = (Read-Host "Choice").ToUpper()
-  switch (`$k) {
-    "S" { StartS FastKoko "FastKoko.bat"; StartS LiteLLM "LiteLLM.bat"; StartS Whisper "WhisperServer.bat" }
-    "A" { StopS FastKoko; StopS LiteLLM; StopS Whisper }
-    "R" { StopS FastKoko; StopS LiteLLM; StopS Whisper; Start-Sleep 2; StartS FastKoko "FastKoko.bat"; StartS LiteLLM "LiteLLM.bat"; StartS Whisper "WhisperServer.bat" }
-    "F" { StartS FastKoko "FastKoko.bat" }
-    "I" { StartS LiteLLM "LiteLLM.bat" }
-    "W" { StartS Whisper "WhisperServer.bat" }
-    "Q" { Write-Host "`nShutting down..." -F Yellow; StopS FastKoko; StopS LiteLLM; StopS Whisper; Write-Host "Done" -F Green; break }
+  `$c = (Read-Host "Choice").ToUpper()
+  switch (`$c) {
+    "S" { StartS "FastKoko" "FastKoko.bat"; StartS "LiteLLM" "LiteLLM.bat"; StartS "Whisper" "WhisperServer.bat" }
+    "A" { StopS "FastKoko"; StopS "LiteLLM"; StopS "Whisper" }
+    "R" { StopS "FastKoko"; StopS "LiteLLM"; StopS "Whisper"; Start-Sleep 2; StartS "FastKoko" "FastKoko.bat"; StartS "LiteLLM" "LiteLLM.bat"; StartS "Whisper" "WhisperServer.bat" }
+    "F" { StartS "FastKoko" "FastKoko.bat" }
+    "I" { StartS "LiteLLM" "LiteLLM.bat" }
+    "W" { StartS "Whisper" "WhisperServer.bat" }
+    "Q" { Write-Host "`nShutting down..." -F Yellow; StopS "FastKoko"; StopS "LiteLLM"; StopS "Whisper"; Write-Host "Done" -F Green; break }
     default { Write-Host "  Invalid choice" -F Red }
   }
 }
