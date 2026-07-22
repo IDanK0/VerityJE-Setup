@@ -79,9 +79,29 @@ while ($true) { Clear-Host; Write-Host "`n  Verity JE Setup - Confirm`n" -F $Yl;
 
 # === DEPS ===
 if (-not $hasGit -or -not $hasUv -or (-not $espeakPath -and $svc.K)) { phase "System Dependencies"
-    if (-not $hasGit) { Write-Host "  Installing Git..." -F $Wh; winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null }
-    if (-not $hasUv) { Write-Host "  Installing uv..." -F $Wh; winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null; $uvBin = Get-UvBin }
-    if (-not $espeakPath -and $svc.K) { Write-Host "  Installing eSpeak NG..." -F $Wh; winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null; $espeakPath = Get-EspeakDll }
+    if (-not $hasGit) {
+        Write-Host "  Installing Git..." -F $Wh
+        winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+        if (-not (T git)) { Write-Host "  Git install failed. Install manually: https://git-scm.com" -F $Rd; Read-Host; exit 1 }
+        Write-Host "  Git installed" -F $Gn
+        $hasGit = $true
+    }
+    if (-not $hasUv) {
+        Write-Host "  Installing uv..." -F $Wh
+        winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+        if (-not (T uv)) { Write-Host "  uv install failed." -F $Rd; Read-Host; exit 1 }
+        Write-Host "  uv installed" -F $Gn
+        $hasUv = $true; $bestPy = Get-BestPython; $uvBin = Get-UvBin
+    }
+    if (-not $espeakPath -and $svc.K) {
+        Write-Host "  Installing eSpeak NG..." -F $Wh
+        winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null
+        $espeakPath = Get-EspeakDll
+        if (-not $espeakPath) { Write-Host "  eSpeak NG not found (optional)" -F $Dg } else { Write-Host "  eSpeak NG installed" -F $Gn }
+    }
+    wait
 }
 
 # === FASTKOKO ===
