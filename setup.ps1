@@ -292,7 +292,7 @@ if ($svc.K) {
         try {
             Pip-Run $kD @("install", "--upgrade", "pip", "-q")
             Pip-Run $kD @("install", "cython<3.0", "-q")
-            Pip-Run $kD @("install", "-e", ".")
+            Pip-Run $kD @("install", ".", "--config-settings", "extras=cpu")
             Pip-Run $kD @("uninstall", "torch", "-y", "-q")
             Pip-Run $kD @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$cudaIdx", "--timeout", "600", "-q")
         } finally { Pop-Location }
