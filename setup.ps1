@@ -217,7 +217,10 @@ if ($services.FastKoko) {
         W-INFO "Cloning Kokoro-FastAPI..."
         $prev = Get-Location
         Set-Location (Split-Path $Path -Parent)
+                $prevEA = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         & git clone https://github.com/remsky/Kokoro-FastAPI.git $kDir 2>&1 | Out-Null
+        $ErrorActionPreference = $prevEA
+        if (-not (Test-Path (Join-Path $kDir "api\src\main.py"))) { throw "Failed to clone Kokoro-FastAPI" }
         Set-Location $prev
         W-OK "Repository cloned"
     } else {
