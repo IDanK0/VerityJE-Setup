@@ -179,6 +179,8 @@ if ($svc.K) {
         & $pip install --upgrade pip -q 2>&1 | Out-Null
         & $pip install "cython<3.0" -q 2>&1 | Out-Null
         & $pip install -e ".[cpu]" 2>&1 | Out-Null
+        & $pip uninstall torch -y -q 2>&1 | Out-Null
+        & $pip install torch --index-url https://download.pytorch.org/whl/cu128 --timeout 600 -q 2>&1 | Out-Null
     }
     Set-Location $startDir
 
