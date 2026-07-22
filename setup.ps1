@@ -54,7 +54,7 @@ while ($true) {
     Clear-Host; Write-Host "`n  Verity JE Setup - System Detection`n" -F $Yl
     $hasGit = T git; $hasPy = T python; if ($hasPy) { $pyVer = & python --version 2>&1 }; $hasUv = T uv
     $hasGPU = $false; $vramGB = 0; $gpuName = ""
-    try { $vg = Get-CimInstance Win32_VideoController -EA SilentlyContinue; if ($vg) { foreach ($Gn in $vg) { if ($Gn.Name -match "NVIDIA|GeForce") { $hasGPU = $true; $gpuName = $Gn.Name; break } } } } catch { }
+    try { $vg = Get-CimInstance Win32_VideoController -EA SilentlyContinue; if ($vg) { foreach ($dev in $vg) { if ($dev.Name -match "NVIDIA|GeForce") { $hasGPU = $true; $gpuName = $dev.Name; break } } } } catch { }
     if ($hasGPU) { try { $nv = & nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>&1; if ($nv -match '(\d+)') { $vramGB = [math]::Floor([int]$Matches[1]/1024) } } catch { if ($vramGB -lt 1) { $vramGB = 4 } } }
     $ramGB = 0; try { $cs = Get-CimInstance Win32_ComputerSystem -EA SilentlyContinue; if ($cs) { $ramGB = [math]::Floor($cs.TotalPhysicalMemory/1GB) } } catch { }
     $colorOk = if($hasGit) { $Gn } else { $Rd }
