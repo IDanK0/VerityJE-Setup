@@ -38,8 +38,71 @@ function spn {
 function phase($t) { Clear-Host; Write-Host "`n  Verity JE Setup - $t`n" -F $Yl }
 
 # ================================================================
+# DETECT CUDA VERSION
+# ================================================================
+function Get-CudaIndex {
+    try {
+        $nv = & nvidia-smi 2>&1 | Out-String
+        if ($nv -match "CUDA UMD Version:\s*(\d+)\.(\d+)") {
+            $major = $Matches[1]; $minor = $Matches[2]
+            # PyTorch CUDA wheels: cu124, cu126, cu128, etc.
+            return "cu${major}${minor}"
+        }
+    } catch { }
+    # Fallback: try common versions in descending order
+    return "cu128"
+}
+
+# ================================================================
+# DETECT PYTHON VERSION FOR VENVS
+# ================================================================
+function Get-BestPython {
+    # Prefer 3.10 (most compatible with torch/spacy). Skip 3.14+ (no torch wheels yet).
+    $candidates = @("3.10", "3.11", "3.12", "3.13")
+    foreach ($v in $candidates) {
+        try {
+            $out = & uv python find $v 2>&1
+            if ($LASTEXITCODE -eq 0 -and $out) { return $v }
+        } catch { }
+    }
+    # If none found, let uv download 3.10 automatically
+    return "3.10"
+}
+
+# ================================================================
+# DETECT ESPEAK DLL
+# ================================================================
+function Get-EspeakDll {
+    $paths = @(
+        "$env:ProgramFiles\eSpeak NG\libespeak-ng.dll",
+        "${env:ProgramFiles(x86)}\eSpeak NG\libespeak-ng.dll",
+        "$env:LOCALAPPDATA\Programs\eSpeak NG\libespeak-ng.dll"
+    )
+    foreach ($p in $paths) { if (Test-Path $p) { return $p } }
+    return ""
+}
+
+# ================================================================
+# DETECT UV BIN PATH
+# ================================================================
+function Get-UvBin {
+    $paths = @(
+        "$env:USERPROFILE\.local\bin",
+        "$env:APPDATA\uv\bin",
+        "$env:LOCALAPPDATA\Programs\uv\bin"
+    )
+    foreach ($p in $paths) { if (Test-Path $p) { return $p } }
+    return ""
+}
+
+# ================================================================
 # PHASE 1: DETECT
 # ================================================================
+$cudaIdx = "cu128"
+$bestPy = "3.10"
+$espeakPath = ""
+$uvBin = ""
+
 while ($true) {
     Clear-Host; Write-Host "`n  Verity JE Setup - System Detection`n" -F $Yl
 
@@ -54,20 +117,31 @@ while ($true) {
     } catch { }
     if ($hasGPU) {
         try { $nv = & nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>&1; if ($nv -match '(\d+)') { $vramGB = [math]::Floor([int]$Matches[1]/1024) } } catch { if ($vramGB -lt 1) { $vramGB = 4 } }
+        $cudaIdx = Get-CudaIndex
     }
 
     $ramGB = 0
     try { $cs = Get-CimInstance Win32_ComputerSystem -EA SilentlyContinue; if ($cs) { $ramGB = [math]::Floor($cs.TotalPhysicalMemory/1GB) } } catch { }
 
+    if ($hasUv) {
+        $bestPy = Get-BestPython
+        $uvBin = Get-UvBin
+    }
+    $espeakPath = Get-EspeakDll
+
     $co = if ($hasGit) { $Gn } else { $Rd }
-    Write-Host "  Git    " -NoNewline -F $Dg; Write-Host $(if ($hasGit) { "found" } else { "missing" }) -F $co
+    Write-Host "  Git       " -NoNewline -F $Dg; Write-Host $(if ($hasGit) { "found" } else { "missing" }) -F $co
     $co = if ($hasPy) { $Gn } else { $Rd }
-    Write-Host "  Python " -NoNewline -F $Dg; Write-Host $(if ($hasPy) { $pyVer } else { "missing" }) -F $co
+    Write-Host "  Python    " -NoNewline -F $Dg; Write-Host $(if ($hasPy) { $pyVer } else { "missing" }) -F $co
     $co = if ($hasUv) { $Gn } else { $Rd }
-    Write-Host "  uv     " -NoNewline -F $Dg; Write-Host $(if ($hasUv) { "found" } else { "missing" }) -F $co
+    Write-Host "  uv        " -NoNewline -F $Dg; Write-Host $(if ($hasUv) { "found" } else { "missing" }) -F $co
+    Write-Host "  uv bin    " -NoNewline -F $Dg; Write-Host $(if ($uvBin) { $uvBin } else { "not found" }) -F $(if ($uvBin) { $Gn } else { $Dg })
     $co = if ($hasGPU) { $Gn } else { $Dg }
-    Write-Host "  GPU    " -NoNewline -F $Dg; Write-Host $(if ($hasGPU) { "$gpuName ($vramGB GB)" } else { "CPU only" }) -F $co
-    Write-Host "  RAM    " -NoNewline -F $Dg; Write-Host "$ramGB GB" -F $Wh
+    Write-Host "  GPU       " -NoNewline -F $Dg; Write-Host $(if ($hasGPU) { "$gpuName ($vramGB GB)" } else { "CPU only" }) -F $co
+    if ($hasGPU) { Write-Host "  CUDA idx  " -NoNewline -F $Dg; Write-Host $cudaIdx -F $Gn }
+    Write-Host "  RAM       " -NoNewline -F $Dg; Write-Host "$ramGB GB" -F $Wh
+    Write-Host "  Python venv" -NoNewline -F $Dg; Write-Host " $bestPy" -F $Gn
+    Write-Host "  eSpeak    " -NoNewline -F $Dg; Write-Host $(if ($espeakPath) { "found" } else { "not found" }) -F $(if ($espeakPath) { $Gn } else { $Dg })
 
     Write-Host "`n  [Enter] continue  [Q] quit" -F $Dg
     $k = K; if ($k.Key -eq "Q") { exit 0 }; if ($k.Key -eq "Enter") { break }
@@ -115,7 +189,10 @@ while ($true) {
     if ($svc.W) { Write-Host "    [X] WhisperServer   ~3 GB    STT (Whisper)" -F $Gn }
     if (-not $hasGit) { Write-Host "`n  Git will be installed." -F $Rd }
     if (-not $hasUv) { Write-Host "  uv will be installed." -F $Rd }
+    if (-not $espeakPath) { Write-Host "  eSpeak NG will be installed." -F $Rd }
     Write-Host "`n  Path: $Path" -F $Dg
+    Write-Host "  CUDA: $cudaIdx" -F $Dg
+    Write-Host "  Python: $bestPy (for virtual environments)" -F $Dg
     Write-Host "`n  [Y] proceed  [B] back  [Q] quit" -F $Dg
     $k = K
     if ($k.Key -eq "Q") { exit 0 }
@@ -126,7 +203,7 @@ while ($true) {
 # ================================================================
 # PHASE 4: SYSTEM DEPS
 # ================================================================
-if (-not $hasGit -or -not $hasUv) {
+if (-not $hasGit -or -not $hasUv -or -not $espeakPath) {
     phase "System Dependencies"
     if (-not $hasGit) {
         Write-Host "  Installing Git..." -F $Wh
@@ -136,7 +213,13 @@ if (-not $hasGit -or -not $hasUv) {
     if (-not $hasUv) {
         Write-Host "  Installing uv..." -F $Wh
         winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-        if (T uv) { Write-Host "  uv installed" -F $Gn } else { Write-Host "  uv FAILED" -F $Rd; Read-Host; exit 1 }
+        if (T uv) { Write-Host "  uv installed" -F $Gn; $uvBin = Get-UvBin } else { Write-Host "  uv FAILED" -F $Rd; Read-Host; exit 1 }
+    }
+    if (-not $espeakPath -and $svc.K) {
+        Write-Host "  Installing eSpeak NG..." -F $Wh
+        winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        $espeakPath = Get-EspeakDll
+        if ($espeakPath) { Write-Host "  eSpeak NG installed" -F $Gn } else { Write-Host "  eSpeak NG not found (optional)" -F $Dg }
     }
     Write-Host "`n  Press any key..." -F $Dg; K | Out-Null
 }
@@ -164,12 +247,12 @@ if ($svc.K) {
     if (Test-Path $kPy) {
         Write-Host "  done  [2/5] Environment  (already exists)" -F $Gn
     } else {
-        spn "Creating Python 3.10 environment" 2 5 {
+        spn "Creating Python environment ($bestPy)" 2 5 {
             param($P, $S)
             Set-Location (Join-Path $P "Kokoro-FastAPI")
-            & uv venv .venv --python 3.10 --seed 2>&1 | Out-Null
+            & uv venv .venv --python $args[0] --seed 2>&1 | Out-Null
             if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "venv failed" }
-        }
+        } -ArgumentList $bestPy
     }
 
     spn "Installing dependencies (torch + kokoro)" 3 5 {
@@ -179,9 +262,12 @@ if ($svc.K) {
         & $pip install --upgrade pip -q 2>&1 | Out-Null
         & $pip install "cython<3.0" -q 2>&1 | Out-Null
         & $pip install -e ".[cpu]" 2>&1 | Out-Null
+        # Replace CPU torch with CUDA torch if GPU detected
         & $pip uninstall torch -y -q 2>&1 | Out-Null
-        & $pip install torch --index-url https://download.pytorch.org/whl/cu128 --timeout 600 -q 2>&1 | Out-Null
-    }
+        if ($args[0] -ne "cpu") {
+            & $pip install torch --index-url "https://download.pytorch.org/whl/$($args[0])" --timeout 600 -q 2>&1 | Out-Null
+        }
+    } -ArgumentList $(if ($hasGPU) { $cudaIdx } else { "cpu" })
     Set-Location $startDir
 
     if (Test-Path $kModel) {
@@ -215,8 +301,7 @@ if ($svc.L) {
         Write-Host "  done  [1/2] LiteLLM  installed" -F $Gn
     }
 
-    $ub = "$env:USERPROFILE\.local\bin"
-    if ((Test-Path $ub) -and ($env:Path -notlike "*$ub*")) { $env:Path += ";$ub" }
+    if ($uvBin -and ($env:Path -notlike "*$uvBin*")) { $env:Path += ";$uvBin" }
 
     if (T ollama) {
         Write-Host "  done  [2/2] Ollama  already installed" -F $Gn
@@ -273,26 +358,28 @@ if ($svc.W) {
     if (Test-Path $wPy) {
         Write-Host "  done  [1/3] Environment  (already exists)" -F $Gn
     } else {
-        spn "Creating Python 3.10 environment" 1 3 {
+        spn "Creating Python environment ($bestPy)" 1 3 {
             param($P, $S)
             Set-Location (Join-Path $P "WhisperServer")
-            & uv venv .venv --python 3.10 --seed 2>&1 | Out-Null
+            & uv venv .venv --python $args[0] --seed 2>&1 | Out-Null
             if (-not (Test-Path ".venv\Scripts\python.exe")) { throw "venv failed" }
-        }
+        } -ArgumentList $bestPy
     }
 
-    $env:GPU = if ($hasGPU) { "1" } else { "0" }
+    $env:GPU_FLAG = if ($hasGPU) { "1" } else { "0" }
+    $env:CUDA_URL = if ($hasGPU) { "https://download.pytorch.org/whl/$cudaIdx" } else { "" }
     spn "Installing dependencies (whisper + torch)" 2 3 {
         param($P, $S)
         Set-Location (Join-Path $P "WhisperServer")
         $pip = ".venv\Scripts\pip.exe"
         & $pip install --upgrade pip -q 2>&1 | Out-Null
         & $pip install "openai-whisper>=1.1.10" "uvicorn[standard]" "fastapi" "pydantic" "python-multipart" "mutagen" -q 2>&1 | Out-Null
-        if ((Get-Item env:GPU -EA SilentlyContinue).Value -eq "1") {
+        if ((Get-Item env:GPU_FLAG -EA SilentlyContinue).Value -eq "1") {
             & $pip uninstall torch -y -q 2>&1 | Out-Null
-            & $pip install torch --index-url https://download.pytorch.org/whl/cu128 --timeout 600 -q 2>&1 | Out-Null
+            & $pip install torch --index-url (Get-Item env:CUDA_URL -EA SilentlyContinue).Value --timeout 600 -q 2>&1 | Out-Null
         }
     }
+    Remove-Item env:GPU_FLAG -EA SilentlyContinue; Remove-Item env:CUDA_URL -EA SilentlyContinue
 
     $wFix = Join-Path $wDir ".venv\Lib\site-packages\whisper.py"
     if (Test-Path $wFix) {
@@ -316,14 +403,23 @@ if ($svc.W) {
 }
 
 # ================================================================
-# PHASE 8: SCRIPTS + DONE
+# PHASE 8: SCRIPTS
 # ================================================================
 phase "Generating Launcher Scripts"
 Write-Host "  Creating .bat and .ps1 files..." -F $Wh
-. "$PSScriptRoot\_generate_scripts.ps1" -VerityTMPath $Path -WhisperModel $wModel
+$genParams = @{
+    VerityTMPath = $Path
+    WhisperModel = $wModel
+    EspeakDll = $espeakPath
+    UvBin = $uvBin
+}
+. "$PSScriptRoot\_generate_scripts.ps1" @genParams
 Write-Host "  Scripts generated" -F $Gn
 Write-Host "`n  Press any key..." -F $Dg; K | Out-Null
 
+# ================================================================
+# DONE
+# ================================================================
 Clear-Host; Write-Host "`n  Verity JE Setup - Complete!`n" -F $Yl
 Write-Host "  Location: $Path`n" -F $Dg
 if ($svc.K) { Write-Host "  FastKoko (TTS) -> http://127.0.0.1:8880/v1/   FastKoko.bat" -F $Gn }
