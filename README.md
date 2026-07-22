@@ -1,110 +1,89 @@
 # VerityTM
 
-One script, three AI services. Bring your own keys, go from zero to production on any Windows PC.
+> **One-click AI backend for [Verity JE](https://www.curseforge.com/minecraft/mc-mods/verity-je) — the Minecraft mod by [VarmiteYT](https://www.youtube.com/@varmite), official adaptation of [ThatMob](https://www.youtube.com/@ThatMob)'s Verity.**
 
-## What It Does
+[![CurseForge](https://img.shields.io/badge/CurseForge-Verity_JE-f16436?logo=curseforge)](https://www.curseforge.com/minecraft/mc-mods/verity-je)
+[![Modrinth](https://img.shields.io/badge/Modrinth-Verity_JE-1bd96a?logo=modrinth)](https://modrinth.com/mod/verity-je-official)
+[![Discord](https://img.shields.io/badge/Discord-join-5865f2?logo=discord)](https://discord.gg/f6DpBDVjMq)
 
-| Service | What | Port | Model |
-|---------|------|------|-------|
-| **FastKoko** | Text-to-Speech (TTS) | `8880/v1/` | Kokoro-82M |
-| **LiteLLM** | AI Gateway (100+ LLMs) | `4000/v1/` | Pick any provider |
-| **WhisperServer** | Speech-to-Text (STT) | `9000/v1/` | large-v3-turbo or auto |
+VerityTM sets up all the AI infrastructure the Verity JE mod needs: speech-to-text (so Verity can hear you), text-to-speech (so Verity can talk back), and the AI gateway (so Verity can think). Cloud or fully local with Ollama — you choose.
 
-All services expose OpenAI-compatible APIs under `http://127.0.0.1:PORT/v1/`.
+---
+
+## What Gets Installed
+
+| Service | What Verity Uses It For | Port |
+|---------|------------------------|------|
+| **WhisperServer** | Speech-to-Text — Verity hears your voice | `9000/v1/` |
+| **FastKoko** | Text-to-Speech — Verity speaks to you (Kokoro-82M) | `8880/v1/` |
+| **LiteLLM** | AI Gateway — connects Verity to Groq / Ollama / any LLM | `4000/v1/` |
+| **Ollama** | Local LLM runner — fully offline AI for Verity | optional |
+
+---
 
 ## Quick Start
 
 ```powershell
-# 1. Run the installer. It detects your hardware, asks which services you want,
-#    and installs everything automatically (git, uv, Python, dependencies, models).
+# 1. Download and run the installer.
+#    It asks which services you want, detects your GPU/CPU,
+#    and installs everything automatically.
 powershell -ExecutionPolicy Bypass -File setup.ps1
 
-# 2. Launch the manager. One window to start/stop/restart all services.
+# 2. Launch the manager — start, stop, or restart any service.
 .\Manager.bat
 ```
 
-That's it. No manual installs, no config files, no Docker.
+That's it. Configure the Verity JE mod to point at `http://127.0.0.1:4000/v1/` (LiteLLM) and Verity is ready.
 
-## Prerequisites
+---
 
-- Windows 10 or 11
-- Internet connection
-
-Everything else (`git`, `uv`, `Python 3.10`, `eSpeak NG`, `torch + CUDA`, `Ollama`) is installed automatically via `winget` and `pip` by `setup.ps1`.
-
-## Services
-
-### FastKoko — Text-to-Speech
+## How Verity JE Uses These Services
 
 ```
-http://127.0.0.1:8880/v1/audio/speech
+Player voice ──► Whisper (STT) ──► text ──► LiteLLM ──► Groq / Ollama
+                                                    │
+Player hears ◄── FastKoko (TTS) ◄── text ◄──────────┘
 ```
 
-OpenAI-compatible speech endpoint powered by Kokoro-82M. Italian, English, Spanish, French, Japanese, Mandarin, and more.
+- **Cloud mode**: LiteLLM routes to Groq (fast, no GPU needed, requires API key)
+- **Local mode**: LiteLLM routes to Ollama running a local model like `llama3.2` (private, offline)
+- Both modes use the same Whisper + Kokoro voice pipeline
 
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:8880/v1", api_key="not-needed")
-client.audio.speech.create(model="kokoro", voice="im_nicola", input="Ciao mondo!")
-```
-
-### LiteLLM — AI Gateway
-
-```
-http://127.0.0.1:4000/v1/chat/completions
-```
-
-Single interface for 100+ LLM providers (OpenAI, Anthropic, Gemini, Groq, HuggingFace, local Ollama models, and more). The launcher prompts for your API key and model choice.
-
-```powershell
-.\LiteLLM.bat
-# -> Choose model -> Enter API key -> Server ready
-```
-
-### WhisperServer — Speech-to-Text
-
-```
-http://127.0.0.1:9000/v1/audio/speech
-```
-
-Transcribe audio files. Automatically picks the best Whisper model for your hardware (large-v3-turbo for NVIDIA GPUs with 6+ GB VRAM, medium for weaker GPUs, base/tiny for CPU-only).
-
-```bash
-curl -X POST http://127.0.0.1:9000/v1/audio/speech -F "file=@recording.mp3"
-```
+---
 
 ## Hardware Detection
 
-`setup.ps1` automatically detects:
+| Your Hardware | Whisper Model | Torch Backend |
+|--------------|---------------|---------------|
+| NVIDIA GPU (6+ GB) | `large-v3-turbo` | CUDA |
+| NVIDIA GPU (4-6 GB) | `medium` | CUDA |
+| NVIDIA GPU (<4 GB) | `base` | CUDA |
+| AMD GPU / CPU only | `base` or `tiny` | CPU |
 
-- **NVIDIA GPU** — CUDA-enabled torch, large-v3-turbo for Whisper
-- **AMD GPU** — CPU inference (ROCm not supported by Whisper)
-- **CPU only** — lightweight models, no GPU acceleration
-- **RAM** — model selection degrades gracefully on low-memory systems
-- **Disk space** — warns if less than 15 GB free
+---
 
 ## Project Structure
 
 ```
 VerityTM/
 ├── setup.ps1                 # One-click installer
-├── _generate_scripts.ps1     # Script generator (called by setup)
-├── Manager.bat / Manager.ps1 # Master control panel
+├── _generate_scripts.ps1     # Launcher generator
+├── Manager.bat / .ps1        # Master control panel
 ├── FastKoko.bat / .ps1       # TTS launcher
 ├── LiteLLM.bat / .ps1        # AI Gateway launcher
 ├── WhisperServer.bat / .ps1  # STT launcher
-│
-├── Kokoro-FastAPI/           # Cloned by setup.ps1
-├── WhisperServer/            # Created by setup.ps1
-│   └── server.py             # FastAPI Whisper server
-└── .gitignore
+├── WhisperServer/server.py   # Whisper API (OpenAI-compatible)
+├── .gitignore
+└── README.md
 ```
 
-## Manager Controls
+---
 
-```
-[S] Start all    [A] Stop all    [R] Restart all
-[F] FastKoko     [L] LiteLLM     [W] Whisper
-[K] List Kokoro voices           [L] Change LiteLLM model
-[Q] Quit
-```
+## Links
+
+- **Verity JE on CurseForge** — https://www.curseforge.com/minecraft/mc-mods/verity-je
+- **Verity JE on Modrinth** — https://modrinth.com/mod/verity-je-official
+- **Verity Mod Wiki** — https://veritymod.blog/
+- **ThatMob (creator)** — https://www.youtube.com/@ThatMob
+- **VarmiteYT (mod author)** — https://www.youtube.com/@varmite
+- **Discord** — https://discord.gg/f6DpBDVjMq
