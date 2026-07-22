@@ -78,28 +78,36 @@ while ($true) { Clear-Host; Write-Host "`n  Verity JE Setup - Confirm`n" -F $Yl;
 }
 
 # === DEPS ===
+function Install-WithWingetOrUrl($id, $url, $name, $exeName) {
+    if (T winget) {
+        Write-Host "  Installing $name via winget..." -F $Wh
+        winget install --id $id -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+    } else {
+        Write-Host "  winget not found. Downloading $name..." -F $Wh
+        $tmp = Join-Path $env:TEMP "${exeName}Setup.exe"
+        $wc = New-Object Net.WebClient; $wc.DownloadFile($url, $tmp)
+        if (Test-Path $tmp) { Start-Process -FilePath $tmp -Arg "/SILENT" -Wait -EA SilentlyContinue; Remove-Item $tmp -EA SilentlyContinue }
+    }
+    $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+    return (T $exeName)
+}
+
+# === INSTALL DEPS ===
 if (-not $hasGit -or -not $hasUv -or (-not $espeakPath -and $svc.K)) { phase "System Dependencies"
     if (-not $hasGit) {
-        Write-Host "  Installing Git..." -F $Wh
-        winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-        $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-        if (-not (T git)) { Write-Host "  Git install failed. Install manually: https://git-scm.com" -F $Rd; Read-Host; exit 1 }
-        Write-Host "  Git installed" -F $Gn
-        $hasGit = $true
+        $ok = Install-WithWingetOrUrl "Git.Git" "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/Git-2.47.1.2-64-bit.exe" "Git" "git"
+        if (-not $ok) { Write-Host "  Git failed. Download: https://git-scm.com" -F $Rd; Read-Host; exit 1 }
+        Write-Host "  Git installed" -F $Gn; $hasGit = $true
     }
     if (-not $hasUv) {
-        Write-Host "  Installing uv..." -F $Wh
-        winget install --id AstralSoftware.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
-        $env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
-        if (-not (T uv)) { Write-Host "  uv install failed." -F $Rd; Read-Host; exit 1 }
-        Write-Host "  uv installed" -F $Gn
-        $hasUv = $true; $bestPy = Get-BestPython; $uvBin = Get-UvBin
+        $ok = Install-WithWingetOrUrl "AstralSoftware.uv" "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc-installer.exe" "uv" "uv"
+        if (-not $ok) { Write-Host "  uv failed." -F $Rd; Read-Host; exit 1 }
+        Write-Host "  uv installed" -F $Gn; $hasUv = $true; $bestPy = Get-BestPython; $uvBin = Get-UvBin
     }
     if (-not $espeakPath -and $svc.K) {
-        Write-Host "  Installing eSpeak NG..." -F $Wh
-        winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null
+        if (T winget) { winget install --id eSpeak-NG.eSpeak-NG -e --silent --accept-source-agreements 2>&1 | Out-Null } else { Write-Host "  eSpeak NG skipped (winget unavailable)" -F $Dg }
         $espeakPath = Get-EspeakDll
-        if (-not $espeakPath) { Write-Host "  eSpeak NG not found (optional)" -F $Dg } else { Write-Host "  eSpeak NG installed" -F $Gn }
+        if ($espeakPath) { Write-Host "  eSpeak NG installed" -F $Gn } else { Write-Host "  eSpeak NG (optional)" -F $Dg }
     }
     wait
 }
