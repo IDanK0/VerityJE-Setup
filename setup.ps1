@@ -12,7 +12,7 @@
 param([string]$Path)
 
 if (-not $Path) { $Path = "$env:USERPROFILE\VerityTM" }
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 Set-StrictMode -Version Latest
 
 # ============================================================
