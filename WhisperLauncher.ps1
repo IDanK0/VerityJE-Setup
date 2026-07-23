@@ -1,5 +1,6 @@
 ﻿<# WhisperLauncher - starts WhisperServer (STT) on :9000
-   Uses the model chosen by setup (config.psd1) and adds ffmpeg to PATH. #>
+   Uses the model chosen by setup (config.psd1) and adds ffmpeg to PATH.
+   -ServerOnly: just start the server (used by Manager). #>
 [CmdletBinding()]
 param([switch]$ServerOnly)
 
@@ -7,35 +8,28 @@ $ErrorActionPreference = "Continue"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
 
-# ------------------------------------------------------------ config load ---
-$cfg = @{}
-$cfgPath = Join-Path $scriptDir "config.psd1"
-if (Test-Path $cfgPath) { try { $cfg = Import-PowerShellDataFile $cfgPath } catch { } }
-function Cfg($name, $default = "") {
-    if ($cfg -and $cfg.Contains($name) -and $null -ne $cfg[$name] -and "$($cfg[$name])" -ne "") { return $cfg[$name] }
-    return $default
-}
+. (Join-Path $scriptDir "VerityUI.ps1")
+
+Start-VyTranscript "whisper-launcher.log"
+
+$cfg = Read-VyConfig $scriptDir
 
 $venvPy   = Join-Path $scriptDir "WhisperServer\.venv\Scripts\python.exe"
 $serverPy = Join-Path $scriptDir "WhisperServer\server.py"
-$model    = Cfg "WhisperModel" "base"
+$model    = Get-VyCfg $cfg "WhisperModel" "base"
 $logDir   = Join-Path $scriptDir "logs"
-New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
-Write-Host ""
-Write-Host "================================================" -F Yellow
-Write-Host "  WhisperServer - STT ($model)  :9000" -F Yellow
-Write-Host "================================================" -F Yellow
-Write-Host ""
+Write-VyBanner "WhisperServer - STT" "model: $model on :9000"
 
 # ------------------------------------------------------------- preflight ----
-if (-not (Test-Path $venvPy))   { Write-Host "ERROR: Whisper venv not found. Run Setup.bat first." -F Red; Read-Host "Press Enter"; exit 1 }
-if (-not (Test-Path $serverPy)) { Write-Host "ERROR: server.py not found." -F Red; Read-Host "Press Enter"; exit 1 }
+if (-not (Test-Path $venvPy))   { Write-VyErr "Whisper venv not found. Run Setup.bat first."; Stop-VyTranscript; Read-Host "Press Enter"; exit 1 }
+if (-not (Test-Path $serverPy)) { Write-VyErr "server.py not found."; Stop-VyTranscript; Read-Host "Press Enter"; exit 1 }
 
-$busy = Get-NetTCPConnection -LocalPort 9000 -State Listen -EA SilentlyContinue
-if ($busy) {
-    Write-Host "Port 9000 is already in use - the server is probably already running." -F Yellow
-    Write-Host "API: http://127.0.0.1:9000/v1/" -F Yellow
+if (Test-VyPort 9000) {
+    Write-VyWarn "port 9000 already in use - the server is probably already running"
+    Write-VyInfo "API: http://127.0.0.1:9000/v1/"
+    Stop-VyTranscript
+    if ($ServerOnly) { exit 0 }
     Read-Host "Press Enter"; exit 0
 }
 
@@ -43,11 +37,11 @@ if ($busy) {
 $env:WHISPER_MODEL = $model
 $env:PYTHONUTF8 = "1"
 
-$ff = Cfg "FfmpegBin"
+$ff = Get-VyCfg $cfg "FfmpegBin"
 if ($ff -and (Test-Path (Join-Path $ff "ffmpeg.exe"))) {
     if ($env:Path -notlike "*$ff*") { $env:Path = "$ff;$env:Path" }
 } elseif (-not (Get-Command ffmpeg -EA SilentlyContinue)) {
-    Write-Host "WARNING: ffmpeg not found - transcription will fail. Re-run Setup.bat." -F Yellow
+    Write-VyWarn "ffmpeg not found - transcription will fail. Re-run Setup.bat."
 }
 
 # --------------------------------------------------------------- launch -----
@@ -55,12 +49,12 @@ $outLog = Join-Path $logDir "whisper-server.out.log"
 $errLog = Join-Path $logDir "whisper-server.err.log"
 Remove-Item $outLog, $errLog -Force -EA SilentlyContinue
 
-Write-Host "Starting server..." -F Yellow
+Write-VyInfo "starting server..."
 $proc = Start-Process -FilePath $venvPy -ArgumentList "`"$serverPy`"" `
     -WorkingDirectory $scriptDir -WindowStyle Hidden `
     -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
 
-Write-Host "Waiting for readiness (model loading can take a minute)..." -F Yellow
+Write-VyInfo "waiting for readiness (model loading can take a minute)..."
 $ready = $false
 for ($i = 0; $i -lt 150 -and -not $ready; $i++) {
     Start-Sleep -Seconds 2
@@ -72,16 +66,15 @@ for ($i = 0; $i -lt 150 -and -not $ready; $i++) {
 }
 
 if (-not $ready) {
-    Write-Host "ERROR: server did not start. Last log lines:" -F Red
-    foreach ($f in @($errLog, $outLog)) {
-        if (Test-Path $f) { Get-Content $f -Tail 12 | ForEach-Object { Write-Host "  $_" -F DarkGray } }
-    }
-    Read-Host "Press Enter"; exit 1
+    Write-VyErr "server did not start. Last log lines:"
+    Get-VyLogTail $errLog 12
+    Get-VyLogTail $outLog 6
+    Stop-VyTranscript; Read-Host "Press Enter"; exit 1
 }
 
-Write-Host "SERVER READY!" -F Green
-Write-Host "API:    http://127.0.0.1:9000/v1/" -F Yellow
-Write-Host "Health: http://127.0.0.1:9000/health" -F DarkGray
-Write-Host 'Example: curl -X POST http://127.0.0.1:9000/v1/audio/transcriptions -F "file=@audio.mp3" -F "model=whisper-1"' -F DarkGray
-Write-Host "Logs: $logDir" -F DarkGray
+Write-VyOk "SERVER READY"
+Write-VyInfo "API:    http://127.0.0.1:9000/v1/"
+Write-VyInfo "Health: http://127.0.0.1:9000/health"
+Write-VyInfo 'curl -X POST http://127.0.0.1:9000/v1/audio/transcriptions -F "file=@audio.mp3" -F "model=whisper-1"'
+Stop-VyTranscript
 if (-not $ServerOnly) { Read-Host "Press Enter" }

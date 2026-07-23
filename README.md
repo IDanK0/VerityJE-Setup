@@ -19,9 +19,10 @@ The installer detects your hardware, asks which services you want, and handles e
 Unattended mode (great for testing / Windows Sandbox):
 
 ```powershell
-.\setup.ps1 -Yes              # all services, all defaults, zero prompts
-.\setup.ps1 -Yes -Services K,W   # only FastKoko + Whisper
-.\setup.ps1 -SelfTest         # hardware/software detection only, changes nothing
+.\setup.ps1 -Yes                          # all services, all defaults, zero prompts
+.\setup.ps1 -Yes -Services K,W            # only FastKoko + Whisper
+.\setup.ps1 -Yes -WithOllama -OllamaModel llama3.2:3b   # + local LLM
+.\setup.ps1 -SelfTest                     # hardware/software detection only, changes nothing
 ```
 
 ---
@@ -78,23 +79,39 @@ The PyTorch CUDA build is matched to your actual NVIDIA driver (`nvidia-smi`). I
 .\Manager.bat
 ```
 
+Live dashboard (auto-refresh, single-key commands, no Enter needed):
+
 ```
-[S] Start all    [A] Stop all    [R] Restart all
-[F] FastKoko     [I] LiteLLM     [W] Whisper
-[Q] Quit (stops services)
+┌────────────────────────────────────────────────────────┐
+│  Verity JE - Manager                                   │
+│  AI backend control panel                              │
+└────────────────────────────────────────────────────────┘
+├── Services ────────────────────────────────────────────┤
+   [F] FastKoko (TTS)  RUNNING   :8880  http://127.0.0.1:8880/v1/
+   [I] LiteLLM (AI)    off       :4000  http://127.0.0.1:4000/v1/
+   [W] Whisper (STT)   STARTING  :9000  http://127.0.0.1:9000/v1/
+├────────────────────────────────────────────────────────┤
+  [S] Start all  [A] Stop all  [R] Restart all  [F/I/W] Toggle  [C] Configure  [Q] Quit
 ```
 
-Status is read live from the listening ports; MISSING means "run Setup.bat".
+- **F / I / W** toggle a single service (start if off, stop if running)
+- Failed starts show the last log lines right in the dashboard
+- **[C]** opens LiteLLM configuration (model + API key) in a new window
+- Stopping a service kills its whole process tree - no orphaned servers
 
 ### Individual Launchers
 
 ```
-.\FastKoko.bat       # TTS: http://127.0.0.1:8880/v1/  (+ interactive voice test)
-.\LiteLLM.bat        # AI:  http://127.0.0.1:4000/v1/  (model + key picker, saved)
-.\WhisperServer.bat  # STT: http://127.0.0.1:9000/v1/
+.\FastKoko.bat       # TTS server + voice picker (saved) + generation test
+.\LiteLLM.bat        # model picker (Ollama models first) + API key setup, all saved
+.\WhisperServer.bat  # STT server
 ```
 
-Launchers read `config.psd1` (written by setup) for the Whisper model, ffmpeg location, eSpeak library, GPU flags and saved LiteLLM model. Deleting `config.psd1` and re-running `setup.ps1` regenerates it.
+Choices are persisted in `config.psd1`: Kokoro voice, LiteLLM model, API keys (user environment), so the Manager can start everything unattended afterwards.
+
+### Ollama (local LLMs, offline)
+
+Setup offers Ollama after LiteLLM (install via winget or direct download, daemon auto-start, RAM-aware model suggestions). A freshly pulled model automatically becomes LiteLLM's default, so `Manager -> [S]` works out of the box with zero API keys. Manage models anytime from `LiteLLM.bat` (`[P]` pulls a new one). Use any model id as `ollama/<name>` (e.g. `ollama/llama3.2`, `ollama/gemma3n:e4b`).
 
 ---
 
@@ -119,8 +136,10 @@ Everything logs to the `logs\` folder - check there first (`setup.log`, `fastkok
 
 | Problem | Solution |
 |---------|----------|
-| Service not starting | Check `logs\*.err.log`, make sure the port is free, restart via Manager |
-| "not installed" in Manager | Run `Setup.bat` |
+| Service not starting | Manager shows the last log lines inline; full logs in `logs\` |
+| LiteLLM won't start from Manager | Not configured yet: press `[C]` (or run `LiteLLM.bat`) once to save model + key |
+| "MISSING" in Manager | Run `Setup.bat` |
+| Ollama model answers nothing | Daemon not running: it is auto-started by `LiteLLM.bat`, or run `ollama serve` |
 | Model download failed | Installer retries 3x. Re-run `setup.ps1` (it resumes/skips what exists) |
 | CUDA not available | Update NVIDIA drivers. Installer falls back to CPU automatically |
 | Transcription fails with "ffmpeg not found" | Re-run `setup.ps1` - ffmpeg was missing |
@@ -134,15 +153,17 @@ Everything logs to the `logs\` folder - check there first (`setup.log`, `fastkok
 
 ```
 Setup.bat                 Double-click installer entry point
-setup.ps1                 Installer (-Yes / -Services / -SelfTest / -Path / -SkipOllama)
-Manager.bat / .ps1        Master control panel
+setup.ps1                 Installer (-Yes / -Services / -WithOllama / -OllamaModel / -SelfTest / -Path)
+VerityUI.ps1              Shared terminal UI (banner, keys, config, status)
+Manager.bat / .ps1        Live control panel
 FastKoko.bat / .ps1       TTS launcher (-ServerOnly for unattended start)
-LiteLLM.bat / .ps1        AI Gateway launcher (saves model + API key)
+LiteLLM.bat / .ps1        AI Gateway launcher (Ollama-aware, saves model + key)
 WhisperServer.bat         STT launcher
 WhisperLauncher.ps1
 WhisperServer/server.py   OpenAI-compatible Whisper API (transcriptions/translations)
 config.psd1               Generated machine config (gitignored)
-logs/                     Setup + server logs (gitignored)
+logs/                     Setup + server + launcher logs (gitignored)
+LiteLLM/                  LiteLLM dedicated venv (gitignored)
 ```
 
 ---

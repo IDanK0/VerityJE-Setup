@@ -15,6 +15,8 @@ param(
     [switch]$Yes,
     [string]$Services = "",
     [switch]$SkipOllama,
+    [switch]$WithOllama,
+    [string]$OllamaModel = "",
     [switch]$SelfTest
 )
 
@@ -24,6 +26,12 @@ $ProgressPreference = "SilentlyContinue"
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $scriptRoot) { $scriptRoot = (Get-Location).Path }
+
+# shared terminal UI (banner/keys); setup keeps working with fallbacks if missing
+$uiFile = Join-Path $scriptRoot "VerityUI.ps1"
+$script:hasUI = Test-Path $uiFile
+if ($script:hasUI) { . $uiFile }
+
 if (-not $Path) { $Path = $scriptRoot }
 $Path = [IO.Path]::GetFullPath($Path)
 $startDir = (Get-Location).Path
@@ -103,7 +111,11 @@ function spn($label, $step, $total, [scriptblock]$sb, $xa = @()) {
     }
 }
 
-function phase($t) { if (-not $script:Yes) { Clear-Host }; Write-Host "`n  Verity JE Setup - $t`n" -F $Yl }
+function phase($t) {
+    if (-not $script:Yes) { Clear-Host }
+    if ($script:hasUI) { Write-VyBanner "Verity JE Setup" $t }
+    else { Write-Host "`n  Verity JE Setup - $t`n" -F $Yl }
+}
 
 # ----------------------------------------------------------- download helper ---
 function Download-File($url, $dest, $tries = 3) {
@@ -198,6 +210,22 @@ function Test-PortFree($port) {
         $c = Get-NetTCPConnection -LocalPort $port -State Listen -EA SilentlyContinue
         return ($null -eq $c)
     } catch { return $true }
+}
+
+function Test-OllamaUp {
+    try {
+        $null = Invoke-WebRequest "http://127.0.0.1:11434/" -TimeoutSec 2 -UseBasicParsing -EA SilentlyContinue
+        return $true
+    } catch { return ($null -ne $_.Exception.Response) }
+}
+
+function Ensure-OllamaServe {
+    if (Test-OllamaUp) { return $true }
+    if (T ollama) {
+        Start-Process ollama -ArgumentList "serve" -WindowStyle Hidden
+        for ($i = 0; $i -lt 15; $i++) { Start-Sleep 1; if (Test-OllamaUp) { return $true } }
+    }
+    return (Test-OllamaUp)
 }
 
 # ---------------------------------------------------------------- venv utils ---
@@ -877,13 +905,24 @@ if ($svc.W) {
 }
 
 # ================================================================= PHASE 8 ==
-# Ollama (optional, local LLMs)
-if ($svc.L -and -not $SkipOllama -and -not $Yes -and -not (T ollama)) {
-    phase "Ollama (optional)"
-    Write-Host "  Ollama runs LLMs locally (private, offline).`n" -F $Wh
-    Write-Host "  [Y] install  [any other key] skip" -F $Dg
-    $k = K
-    if ($k -and ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y')) {
+# Ollama (optional, local LLMs for LiteLLM)
+$ollamaPulled = ""
+if ($svc.L -and -not $SkipOllama) {
+    $wantOllama = $false
+    if ($Yes) { $wantOllama = [bool]$WithOllama }
+    elseif (T ollama) { $wantOllama = $true }
+    else {
+        phase "Ollama (optional)"
+        Write-Host "  Ollama runs LLMs locally: private, offline, no API key needed." -F $Wh
+        Write-Host "  LiteLLM can then route to models like ollama/llama3.2." -F $Dg
+        if ($script:hasUI) { Write-VyKeys @(@("Y","install Ollama"), @("any","skip")) }
+        else { Write-Host "`n  [Y] install  [any other key] skip" -F $Dg }
+        $k = K
+        if ($k -and ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y')) { $wantOllama = $true }
+    }
+
+    if ($wantOllama -and -not (T ollama)) {
+        phase "Ollama"
         $done = $false
         if (T winget) {
             spn "Install Ollama (winget)" 0 0 {
@@ -904,22 +943,69 @@ if ($svc.L -and -not $SkipOllama -and -not $Yes -and -not (T ollama)) {
             } catch { Log "  Ollama install failed: $_" $Yl }
         }
         if ($done) { Log "  Ollama installed" $Gn }
-        else { Log "  Ollama not installed - install it later from https://ollama.com" $Yl }
+        else { Log "  Ollama not installed - get it later from https://ollama.com" $Yl }
     }
-}
 
-if ($svc.L -and (T ollama) -and -not $Yes) {
-    Write-Host ""
-    Write-Host "  Pull a model now? (e.g. llama3.2, qwen2.5, mistral)" -F $Wh
-    Write-Host "  Model name (Enter to skip): " -NoNewline -F $Dg
-    $modelName = Read-Host
-    if ($modelName) {
-        spn "Pull $modelName" 0 0 {
-            param($mod)
-            $ErrorActionPreference = "Continue"
-            & ollama pull $mod 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "ollama pull $mod failed" }
-        } -xa @($modelName.Trim())
+    if ($wantOllama -and (T ollama)) {
+        if (-not (Ensure-OllamaServe)) {
+            Log "  WARNING: Ollama daemon not responding on :11434" $Yl
+        }
+
+        # model choice: explicit param, or RAM-aware menu
+        $choice = ""
+        if ($Yes) { $choice = $OllamaModel }
+        else {
+            phase "Ollama - Local Model"
+            $sugg = @()
+            if ($ramGB -ge 18) { $sugg += @("ollama/gemma3n:e4b|Gemma 3n E4B|~5.0 GB download") }
+            if ($ramGB -ge 14) { $sugg += @("ollama/qwen2.5:7b|Qwen 2.5 7B|~4.7 GB download", "ollama/mistral:7b|Mistral 7B|~4.1 GB download") }
+            if ($ramGB -ge 10) { $sugg += @("ollama/gemma3:4b|Gemma 3 4B|~3.3 GB download", "ollama/llama3.2:3b|Llama 3.2 3B|~2.0 GB download") }
+            $sugg += @("ollama/llama3.2:1b|Llama 3.2 1B|~1.3 GB download", "ollama/gemma3:1b|Gemma 3 1B|~0.8 GB download")
+
+            Write-Host "  Detected RAM: $ramGB GB - suggested models:" -F $Dg
+            Write-Host ""
+            for ($i = 0; $i -lt $sugg.Count; $i++) {
+                $parts = $sugg[$i] -split '\|'
+                Write-Host ("  [{0}] {1,-22}" -f ($i + 1), $parts[1]) -F $Wh -NoNewline
+                Write-Host ("{0,-24}" -f $parts[0]) -F $Gn -NoNewline
+                Write-Host $parts[2] -F $Dg
+            }
+            Write-Host ""
+            Write-Host "  [1-$($sugg.Count)] pull model   [C] custom name   [Enter] skip" -F $Dg
+            $k = K
+            if ($null -ne $k) {
+                if ($k.KeyChar -eq 'c' -or $k.KeyChar -eq 'C') {
+                    Write-Host "`n  Model name (e.g. ollama/llama3.2 or llama3.2): " -NoNewline -F $Dg
+                    $choice = Read-Host
+                } elseif ($k.KeyChar -match '^\d$') {
+                    $ix = [int]"$($k.KeyChar)" - 1
+                    if ($ix -ge 0 -and $ix -lt $sugg.Count) { $choice = ($sugg[$ix] -split '\|')[0] }
+                }
+            }
+        }
+
+        if ($choice) {
+            $choice = $choice.Trim()
+            if ($choice -notlike "ollama/*") { $choice = "ollama/$choice" }
+            $ollamaName = $choice -replace '^ollama/', ''
+            $already = $false
+            $list = (& ollama list 2>&1 | Out-String)
+            if ($list -match [regex]::Escape($ollamaName)) { $already = $true }
+            if ($already) {
+                Log "  model $ollamaName already pulled" $Dg
+                $ollamaPulled = $choice
+            } elseif (Ensure-OllamaServe) {
+                spn "Pull $ollamaName" 0 0 {
+                    param($mod)
+                    $ErrorActionPreference = "Continue"
+                    & ollama pull $mod 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { throw "ollama pull $mod failed" }
+                } -xa @($ollamaName)
+                $ollamaPulled = $choice
+            } else {
+                Log "  cannot pull: Ollama daemon not running. Later: ollama pull $ollamaName" $Yl
+            }
+        }
     }
 }
 
@@ -928,7 +1014,7 @@ if ($svc.L -and (T ollama) -and -not $Yes) {
 phase "Finalizing"
 
 if ($Path -ne $scriptRoot) {
-    $toCopy = @("Manager.bat", "Manager.ps1", "FastKoko.bat", "FastKoko.ps1",
+    $toCopy = @("VerityUI.ps1", "Manager.bat", "Manager.ps1", "FastKoko.bat", "FastKoko.ps1",
                 "LiteLLM.bat", "LiteLLM.ps1", "WhisperServer.bat", "WhisperLauncher.ps1")
     foreach ($f in $toCopy) {
         $src = Join-Path $scriptRoot $f
@@ -945,6 +1031,13 @@ if ($Path -ne $scriptRoot) {
 if (-not $uvBin) { $uvBin = Get-UvToolBin }
 if (-not $ffmpegBin -and (T ffmpeg)) { $ffmpegBin = Split-Path -Parent (Get-Command ffmpeg).Source }
 
+# preserve user choices from a previous config (launcher saves them there)
+$prevCfg = @{}
+$prevCfgPath = Join-Path $Path "config.psd1"
+if (Test-Path $prevCfgPath) { try { $prevCfg = Import-PowerShellDataFile $prevCfgPath } catch { } }
+$keepLLM  = $(if ($ollamaPulled) { $ollamaPulled } elseif ($prevCfg.LiteLLMModel) { $prevCfg.LiteLLMModel } else { "" })
+$keepVoice = $(if ($prevCfg.KokoroVoice) { $prevCfg.KokoroVoice } else { "" })
+
 Save-Config @{
     WhisperModel   = $wModel
     CudaIndex      = $(if ($cudaIdx) { $cudaIdx } else { "cpu" })
@@ -956,15 +1049,21 @@ Save-Config @{
     EspeakDataPath = $espeakData
     FfmpegBin      = $ffmpegBin
     InstallPath    = $Path
+    OllamaModel    = $(if ($ollamaPulled) { $ollamaPulled } elseif ($prevCfg.OllamaModel) { $prevCfg.OllamaModel } else { "" })
+    # a freshly pulled local model becomes LiteLLM's default right away
+    LiteLLMModel   = $keepLLM
+    KokoroVoice    = $keepVoice
 }
 
 # ================================================================ PHASE 10 ==
 if (-not $Yes) { Clear-Host }
-Write-Host "`n  Verity JE Setup - Complete!`n" -F $Yl
+if ($script:hasUI) { Write-VyBanner "Verity JE Setup" "Complete!" }
+else { Write-Host "`n  Verity JE Setup - Complete!`n" -F $Yl }
 Write-Host "  Location: $Path`n" -F $Dg
 if ($svc.K) { Write-Host "  FastKoko (TTS) -> http://127.0.0.1:8880/v1/   FastKoko.bat" -F $Gn }
 if ($svc.L) { Write-Host "  LiteLLM  (AI)  -> http://127.0.0.1:4000/v1/   LiteLLM.bat" -F $Gn }
 if ($svc.W) { Write-Host "  Whisper  (STT) -> http://127.0.0.1:9000/v1/   WhisperServer.bat ($wModel)" -F $Gn }
+if ($ollamaPulled) { Write-Host "  Ollama model   -> $ollamaPulled  (LiteLLM default)" -F $Gn }
 Write-Host ""
 Write-Host "  Logs: $logDir" -F $Dg
 
