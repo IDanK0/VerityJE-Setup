@@ -31,7 +31,9 @@ Unattended mode (great for testing / Windows Sandbox):
 | Service | Purpose | Port | Model |
 |---------|---------|------|-------|
 | FastKoko | Text-to-Speech | `8880` | Kokoro-82M (pinned Kokoro-FastAPI v0.6.0) |
-| LiteLLM | AI Gateway (100+ LLMs) | `4000` | Groq / OpenAI / Anthropic / Gemini / Ollama |
+| LiteLLM | AI Gateway (100+ LLMs) | `4000` | Groq / OpenAI / Anthropic / Gemini / Ollama (pinned 1.91.0)* |
+
+\* litellm >= 1.92 bundles a Rust component that requires a Rust toolchain to build on Windows (no Windows wheels are published). 1.91.0 is the newest pure-Python release and is installed in its own `LiteLLM/.venv`.
 | WhisperServer | Speech-to-Text | `9000` | auto-selected by hardware |
 | Ollama | Local LLM runner | optional | llama3.2, mistral, qwen, etc. |
 

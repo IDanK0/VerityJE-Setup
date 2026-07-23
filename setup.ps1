@@ -788,7 +788,10 @@ if ($svc.L) {
         }
         Log "  [2/2] Installing LiteLLM (source build, several minutes)..." $Wh
         Repair-Venv $lD
-        Pip-Run $lD @("litellm[proxy]")
+        # pinned: litellm >= 1.92 bundles a Rust component that needs cargo/rustc
+        # to build from sdist (no Windows wheels exist). 1.91.0 is the newest
+        # pure-Python release. Revisit if litellm ever ships Windows wheels.
+        Pip-Run $lD @("litellm[proxy]==1.91.0")
         Log "  done  [2/2] LiteLLM" $Gn
     }
 
