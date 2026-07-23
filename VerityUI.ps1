@@ -187,6 +187,49 @@ function Test-VyPort($port) {
     } catch { return $false }
 }
 
+# -------------------------------------------------------- microphone --------
+# The Verity mod captures the mic itself and sends audio to Whisper over HTTP.
+# These helpers let the user pick a capture device and verify the full chain
+# (mic -> wav -> STT) with ffmpeg DirectShow.
+function Get-VyAudioDevices($ffmpegBin) {
+    $ff = "ffmpeg"
+    if ($ffmpegBin -and (Test-Path (Join-Path $ffmpegBin "ffmpeg.exe"))) { $ff = Join-Path $ffmpegBin "ffmpeg.exe" }
+    elseif (-not (Get-Command ffmpeg -EA SilentlyContinue)) { return @() }
+    $out = & $ff -list_devices true -f dshow -i dummy 2>&1 | Out-String
+    $devices = @()
+    $inAudio = $false
+    foreach ($line in ($out -split "`r?`n")) {
+        # ffmpeg >= 7 format: [in#0 @ ...] "Device Name" (audio)
+        if ($line -match '"([^"]+)"\s*\(audio\)') { $devices += $Matches[1]; continue }
+        # legacy format: section header "DirectShow audio devices" then quoted names
+        if ($line -match "DirectShow audio devices") { $inAudio = $true; continue }
+        if ($line -match "DirectShow video devices") { $inAudio = $false; continue }
+        if ($inAudio -and $line -match '"([^"]+)"') { $devices += $Matches[1] }
+    }
+    return @($devices | Select-Object -Unique)
+}
+
+function Invoke-VyMicTest($device, $port, $ffmpegBin) {
+    $ff = "ffmpeg"
+    if ($ffmpegBin -and (Test-Path (Join-Path $ffmpegBin "ffmpeg.exe"))) { $ff = Join-Path $ffmpegBin "ffmpeg.exe" }
+    $wav = Join-Path $env:TEMP "verity-mic-test.wav"
+    Remove-Item $wav -Force -EA SilentlyContinue
+    # 16 kHz mono = whisper's native format
+    & $ff -y -f dshow -i "audio=$device" -t 5 -ar 16000 -ac 1 $wav 2>&1 | Out-Null
+    if (-not (Test-Path $wav) -or (Get-Item $wav).Length -lt 10KB) {
+        Remove-Item $wav -Force -EA SilentlyContinue
+        return @{ ok = $false; error = "recording failed (device busy or blocked by privacy settings)" }
+    }
+    $json = & curl.exe -s -X POST "http://127.0.0.1:$port/v1/audio/transcriptions" -F "file=@$wav" -F "model=whisper-1" 2>&1 | Out-String
+    Remove-Item $wav -Force -EA SilentlyContinue
+    try {
+        $r = $json | ConvertFrom-Json
+        return @{ ok = $true; text = [string]$r.text }
+    } catch {
+        return @{ ok = $false; error = "server error: $($json.Substring(0, [Math]::Min(120, $json.Length)))" }
+    }
+}
+
 function Get-VyLogTail($file, $n = 8) {
     if (Test-Path $file) {
         $lines = Get-Content $file -Tail $n -Encoding UTF8 -EA SilentlyContinue

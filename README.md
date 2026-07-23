@@ -115,7 +115,17 @@ Setup asks about Ollama **at the very end** of the install - everything else is 
 
 ### Default TTS voice
 
-Right after Ollama, setup asks for your **default Kokoro voice** (read from the installed voice files, grouped IT/EN/other, saved to `config.psd1`). The Verity mod still sends its own voice per API request; this default is what `FastKoko.bat` uses for its tests. Change it anytime from `FastKoko.bat`.
+Right after Ollama, setup asks for your **default Kokoro voice** (read from the installed voice files, grouped IT/EN/other, saved to `config.psd1`). The Verity mod still sends its own voice per API request; this default is what `FastKoko.bat` uses for its tests. Change it anytime from `FastKoko.bat` or Manager `[C]`.
+
+### Microphone
+
+The Whisper server never touches your mic: **the Verity JE mod captures audio itself** (via the Java Sound API, i.e. the **Windows default recording device**) and POSTs it to the server. There is no mic selector inside the mod - set your mic in Windows:
+
+- Settings -> System -> Sound -> Input (choose the default mic), or classic `control mmsys.cpl,,1`
+- Windows 11 per-app routing: Settings -> System -> Sound -> Volume mixer -> Minecraft/javaw -> Input device
+- If the mod "can't hear you": Settings -> Privacy & security -> Microphone -> let desktop apps access it
+
+Verify the whole chain (mic -> wav -> transcription) with the built-in **mic test**: `Manager.bat -> [C] -> [M]` - pick the device (saved to `config.psd1`), press `[T]`, speak 5 seconds, read what Whisper heard.
 
 ---
 

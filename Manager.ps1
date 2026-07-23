@@ -172,9 +172,11 @@ function Invoke-Configure {
         Write-Host ("{0}" -f $(if ($cfg.LiteLLMModel) { $cfg.LiteLLMModel } else { "(not set)" })) -F White
         Write-Host ("   [W] Whisper model    ") -F $VyColor.Title -NoNewline
         Write-Host ("{0}" -f $(if ($cfg.WhisperModel) { $cfg.WhisperModel } else { "(not set)" })) -F White
+        Write-Host ("   [M] Microphone       ") -F $VyColor.Title -NoNewline
+        Write-Host ("{0}" -f $(if ($cfg.MicDevice) { $cfg.MicDevice } else { "(not set - used by the mic test)" })) -F White
         Write-Host ""
         Write-VyRule
-        Write-VyKeys @(@("F","voice"), @("I","LLM + API key"), @("W","Whisper model"), @("B","back"))
+        Write-VyKeys @(@("F","voice"), @("I","LLM + API key"), @("W","Whisper model"), @("M","microphone"), @("B","back"))
         $k = Read-VyKey
         if ($null -eq $k) { return }
         switch ([string]$k.KeyChar.ToString().ToUpper()) {
@@ -185,9 +187,66 @@ function Invoke-Configure {
                 $cfg = Read-VyConfig $scriptDir
             }
             "W" { Edit-WhisperModel; $cfg = Read-VyConfig $scriptDir }
+            "M" { Edit-Microphone; $cfg = Read-VyConfig $scriptDir }
             "B" { return }
             default { }
         }
+    }
+}
+
+function Edit-Microphone {
+    # the mod uses the Windows DEFAULT recording device; here you pick the device
+    # for the built-in mic test (mic -> wav -> Whisper) and save it for later.
+    $cfg = Read-VyConfig $scriptDir
+    $ffBin = Get-VyCfg $cfg "FfmpegBin"
+    Clear-Host
+    Write-VyBanner "Microphone" "pick the capture device used by the mic test"
+
+    Write-VyInfo "enumerating DirectShow devices..."
+    $devices = @(Get-VyAudioDevices $ffBin)
+    if (-not $devices.Count) {
+        Write-VyErr "no audio devices found (or ffmpeg missing - run Setup.bat)"
+        Start-Sleep 2; return
+    }
+    $saved = Get-VyCfg $cfg "MicDevice" $devices[0]
+    if ($devices -notcontains $saved) { $saved = $devices[0] }
+    Write-Host ""
+    for ($i = 0; $i -lt [Math]::Min(9, $devices.Count); $i++) {
+        $m = if ($devices[$i] -eq $saved) { " *" } else { "" }
+        Write-Host ("   [{0}] {1}{2}" -f ($i + 1), $devices[$i], $m) -F White
+    }
+    Write-Host ""
+    Write-VyKeys @(@("1-$([Math]::Min(9, $devices.Count))","pick"), @("T","test mic"), @("S","Windows sound settings"), @("B","back"))
+    $k = Read-VyKey
+    if ($null -eq $k) { return }
+    $ch = [string]$k.KeyChar.ToString().ToUpper()
+    if ($ch -match '^\d$') {
+        $ix = [int]$ch - 1
+        if ($ix -ge 0 -and $ix -lt [Math]::Min(9, $devices.Count)) {
+            $saved = $devices[$ix]
+            Set-VyCfg $scriptDir "MicDevice" $saved
+            Write-Host ""; Write-VyOk "microphone saved: $saved"
+        }
+    } elseif ($ch -eq "S") {
+        Start-Process "ms-settings:sound"
+    } elseif ($ch -eq "T") {
+        Write-Host ""
+        if (-not (Test-VyPort 9000)) {
+            Write-VyWarn "Whisper is not running - start it first ([W] in the dashboard)"
+            Start-Sleep 2; return
+        }
+        Write-Host "  Recording 5 seconds from:" -F $VyColor.Title
+        Write-Host "  $saved" -F White
+        Write-Host "  Speak now..." -F $VyColor.Accent
+        for ($c = 5; $c -ge 1; $c--) { Write-Host ("`r  rec " + ("#" * (6 - $c)) + ("." * $c) + " $c ") -NoNewline -F $VyColor.Warn; Start-Sleep 1 }
+        Write-Host ""
+        $r = Invoke-VyMicTest $saved 9000 $ffBin
+        Write-Host ""
+        if ($r.ok) { Write-VyOk "Whisper heard: $($r.text)" }
+        else { Write-VyErr $r.error }
+        Write-Host ""
+        Write-Host "  Press any key..." -F $VyColor.Dim
+        $null = Read-VyKey
     }
 }
 

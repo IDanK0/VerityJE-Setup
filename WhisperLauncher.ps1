@@ -72,5 +72,6 @@ Write-VyOk "SERVER READY"
 Write-VyInfo "API:    http://127.0.0.1:9000/v1/"
 Write-VyInfo "Health: http://127.0.0.1:9000/health"
 Write-VyInfo 'curl -X POST http://127.0.0.1:9000/v1/audio/transcriptions -F "file=@audio.mp3" -F "model=whisper-1"'
+Write-VyInfo "mic test: Manager.bat -> [C] -> [M]  (the mod uses the Windows default mic)"
 Stop-VyTranscript
 if (-not $ServerOnly) { Read-Host "Press Enter" }
