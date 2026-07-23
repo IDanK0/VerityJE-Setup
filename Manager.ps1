@@ -87,14 +87,20 @@ function Show-Dashboard($states) {
     Write-VyBanner "Verity JE - Manager" "AI backend control panel"
     Write-VyRule "Services"
     Write-Host ""
+    $cfg = Read-VyConfig $scriptDir
     foreach ($key in $services.Keys) {
         $svc = $services[$key]
         $state = $states[$key][0]; $color = $states[$key][1]
+        $note = ""
+        if ($key -eq "F" -and $cfg.KokoroVoice)  { $note = $cfg.KokoroVoice }
+        if ($key -eq "I" -and $cfg.LiteLLMModel) { $note = $cfg.LiteLLMModel }
+        if ($key -eq "W" -and $cfg.WhisperModel) { $note = $cfg.WhisperModel }
         Write-Host ("   [{0}] " -f $key) -F $VyColor.Title -NoNewline
         Write-Host ("{0,-16}" -f $svc.name) -F White -NoNewline
         Write-Host ("{0,-10}" -f $state) -F $color -NoNewline
         Write-Host (":{0,-6}" -f $svc.port) -F $VyColor.Dim -NoNewline
-        Write-Host "http://127.0.0.1:$($svc.port)/v1/" -F $VyColor.Dim
+        Write-Host ("http://127.0.0.1:{0}/v1/" -f $svc.port) -F $VyColor.Dim -NoNewline
+        if ($note) { Write-Host ("  {0}" -f $note) -F $VyColor.Dim } else { Write-Host "" }
         if ($state -eq "FAILED" -and $pending.ContainsKey($key) -and $pending[$key].tail) {
             foreach ($l in $pending[$key].tail) {
                 Write-Host ("        {0}" -f $l) -F $VyColor.Dim
@@ -153,9 +159,114 @@ function Toggle-VerityService($key) {
 }
 
 function Invoke-Configure {
-    # interactive LiteLLM configuration in a visible window
-    $bat = Join-Path $scriptDir "LiteLLM.bat"
-    if (Test-Path $bat) { Start-Process cmd -ArgumentList "/c", "`"$bat`"" }
+    # configuration center: FastKoko voice, LiteLLM model/key, Whisper model
+    $cfg = Read-VyConfig $scriptDir
+    while ($true) {
+        Clear-Host
+        Write-VyBanner "Configure" "saved to config.psd1 - applied on next (re)start"
+        Write-VyRule "Current settings"
+        Write-Host ""
+        Write-Host ("   [F] FastKoko voice   ") -F $VyColor.Title -NoNewline
+        Write-Host ("{0}" -f $(if ($cfg.KokoroVoice) { $cfg.KokoroVoice } else { "(not set)" })) -F White
+        Write-Host ("   [I] LiteLLM model    ") -F $VyColor.Title -NoNewline
+        Write-Host ("{0}" -f $(if ($cfg.LiteLLMModel) { $cfg.LiteLLMModel } else { "(not set)" })) -F White
+        Write-Host ("   [W] Whisper model    ") -F $VyColor.Title -NoNewline
+        Write-Host ("{0}" -f $(if ($cfg.WhisperModel) { $cfg.WhisperModel } else { "(not set)" })) -F White
+        Write-Host ""
+        Write-VyRule
+        Write-VyKeys @(@("F","voice"), @("I","LLM + API key"), @("W","Whisper model"), @("B","back"))
+        $k = Read-VyKey
+        if ($null -eq $k) { return }
+        switch ([string]$k.KeyChar.ToString().ToUpper()) {
+            "F" { Edit-FastKokoVoice; $cfg = Read-VyConfig $scriptDir }
+            "I" {
+                $bat = Join-Path $scriptDir "LiteLLM.bat"
+                if (Test-Path $bat) { Start-Process cmd -ArgumentList "/c", "`"$bat`"" -Wait }
+                $cfg = Read-VyConfig $scriptDir
+            }
+            "W" { Edit-WhisperModel; $cfg = Read-VyConfig $scriptDir }
+            "B" { return }
+            default { }
+        }
+    }
+}
+
+function Edit-FastKokoVoice {
+    $voiceDir = Join-Path $scriptDir "Kokoro-FastAPI\api\src\voices\v1_0"
+    if (-not (Test-Path $voiceDir)) { Write-Host ""; Write-VyErr "Kokoro-FastAPI not installed - run Setup.bat"; Start-Sleep 2; return }
+    $names = @(Get-ChildItem $voiceDir -Filter "*.pt" -EA SilentlyContinue | ForEach-Object { $_.BaseName } | Sort-Object)
+    if (-not $names.Count) { Write-Host ""; Write-VyErr "no voice files found"; Start-Sleep 2; return }
+
+    $cfg = Read-VyConfig $scriptDir
+    $saved = Get-VyCfg $cfg "KokoroVoice" $names[0]
+    $italian = @($names | Where-Object { $_ -match '^i[fm]_' })
+    $english = @($names | Where-Object { $_ -match '^[abef][fm]_' })
+    $other   = @($names | Where-Object { $_ -notmatch '^i[fm]_' -and $_ -notmatch '^[abef][fm]_' })
+    $all = @($italian) + @($english) + @($other)
+
+    Clear-Host
+    Write-VyBanner "FastKoko voice" "the mod sends its own voice per request; this is the local default"
+    $opt = 1
+    if ($italian.Count) { Write-Host "  ITALIAN" -F $VyColor.Accent; foreach ($v in $italian) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F White; $opt++ } }
+    if ($english.Count) { Write-Host "  ENGLISH" -F $VyColor.Accent; foreach ($v in $english) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F White; $opt++ } }
+    if ($other.Count)   { Write-Host "  OTHER" -F $VyColor.Accent;   foreach ($v in $other)   { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F White; $opt++ } }
+    Write-Host ""
+    Write-Host "  (* = current)  number or name, [Enter] keep $saved" -F $VyColor.Dim
+    Write-Host "  > " -NoNewline -F $VyColor.Title
+    $vc = Read-Host
+    $pick = $saved
+    if ($vc -match '^\d+$') {
+        $ix = [int]$vc - 1
+        if ($ix -ge 0 -and $ix -lt $all.Count) { $pick = $all[$ix] }
+    } elseif ($vc.Trim() -and ($all -contains $vc.Trim())) { $pick = $vc.Trim() }
+    Set-VyCfg $scriptDir "KokoroVoice" $pick
+    Write-Host ""; Write-VyOk "voice saved: $pick"; Start-Sleep 1
+}
+
+function Edit-WhisperModel {
+    $models = @(
+        @("tiny",           "~75 MB",   "fastest, lowest accuracy - low-end CPUs"),
+        @("base",           "~145 MB",  "good on CPU"),
+        @("small",          "~465 MB",  "better, 2+ GB VRAM / decent CPU"),
+        @("medium",         "~1.5 GB",  "great, 4-6 GB VRAM"),
+        @("large-v3-turbo", "~1.6 GB",  "best speed/quality ratio, 6+ GB VRAM"),
+        @("large-v3",       "~2.9 GB",  "most accurate, 8+ GB VRAM")
+    )
+    $cfg = Read-VyConfig $scriptDir
+    $saved = Get-VyCfg $cfg "WhisperModel" "base"
+    $cacheDir = Join-Path $env:USERPROFILE ".cache\whisper"
+
+    Clear-Host
+    Write-VyBanner "Whisper model" "larger = more accurate, slower - applied on next start"
+    Write-Host ""
+    for ($i = 0; $i -lt $models.Count; $i++) {
+        $id = $models[$i][0]
+        $m = if ($id -eq $saved) { " *" } else { "" }
+        $cached = $false
+        if (Test-Path $cacheDir) {
+            $cached = ($null -ne (Get-ChildItem $cacheDir -Filter "*.pt" -EA SilentlyContinue | Where-Object { $_.Name -like "*$id*" }))
+        }
+        $note = if ($cached) { "cached" } else { "will download on first use" }
+        Write-Host ("   [{0}] " -f ($i + 1)) -F $VyColor.Title -NoNewline
+        Write-Host ("{0,-16}" -f $id) -F White -NoNewline
+        Write-Host ("{0,-9}" -f $models[$i][1]) -F $VyColor.Dim -NoNewline
+        Write-Host ("{0,-44}" -f $models[$i][2]) -F $VyColor.Dim -NoNewline
+        Write-Host $note -F $(if ($cached) { $VyColor.Ok } else { $VyColor.Warn }) -NoNewline
+        Write-Host $m -F $VyColor.Accent
+    }
+    Write-Host ""
+    Write-VyKeys @(@("1-$($models.Count)","pick"), @("Enter","keep $saved"))
+    $k = Read-VyKey
+    if ($null -ne $k -and $k.KeyChar -match '^\d$') {
+        $ix = [int]"$($k.KeyChar)" - 1
+        if ($ix -ge 0 -and $ix -lt $models.Count) {
+            $pick = $models[$ix][0]
+            Set-VyCfg $scriptDir "WhisperModel" $pick
+            Write-Host ""; Write-VyOk "Whisper model saved: $pick (applies on next start)"
+            if (Test-VyPort 9000) { Write-VyWarn "Whisper is RUNNING - toggle [W] to apply now" }
+            Start-Sleep 2
+        }
+    }
 }
 
 function Get-States {

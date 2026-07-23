@@ -96,7 +96,7 @@ Live dashboard (auto-refresh, single-key commands, no Enter needed):
 
 - **F / I / W** toggle a single service (start if off, stop if running)
 - Failed starts show the last log lines right in the dashboard
-- **[C]** opens LiteLLM configuration (model + API key) in a new window
+- **[C] Configure**: FastKoko voice, LiteLLM model + API key, Whisper model (VRAM hints + cache status) - all saved to `config.psd1`
 - Stopping a service kills its whole process tree - no orphaned servers
 
 ### Individual Launchers
