@@ -67,9 +67,14 @@ function Get-ServiceState($key) {
     if ($pending.ContainsKey($key)) {
         $p = $pending[$key]
         if (-not $p.proc.HasExited) { return "STARTING", "Yellow" }
-        if (-not $p.failedShown) {
-            $p.failedShown = $true
-            Show-Failure $key
+        if (-not $p.tail) {
+            # capture failure log tail once; dashboard renders it under the row
+            $lines = @()
+            foreach ($f in @($svc.lLog, $svc.sLog)) {
+                $fp = Join-Path $scriptDir "logs\$f"
+                if (Test-Path $fp) { $lines += @(Get-Content $fp -Tail 5 -Encoding UTF8 -EA SilentlyContinue) }
+            }
+            $p.tail = $lines
         }
         return "FAILED", "Red"
     }
@@ -77,28 +82,24 @@ function Get-ServiceState($key) {
     return "MISSING", "Red"
 }
 
-function Show-Failure($key) {
-    $svc = $services[$key]
-    Write-Host ""
-    Write-VyErr "$($svc.name) failed to start - last log lines:"
-    Get-VyLogTail (Join-Path $scriptDir "logs\$($svc.lLog)") 6
-    Get-VyLogTail (Join-Path $scriptDir "logs\$($svc.sLog)") 8
-    Write-Host ""
-}
-
-function Show-Dashboard {
+function Show-Dashboard($states) {
     Clear-Host
     Write-VyBanner "Verity JE - Manager" "AI backend control panel"
     Write-VyRule "Services"
     Write-Host ""
     foreach ($key in $services.Keys) {
         $svc = $services[$key]
-        $state, $color = Get-ServiceState $key
+        $state = $states[$key][0]; $color = $states[$key][1]
         Write-Host ("   [{0}] " -f $key) -F $VyColor.Title -NoNewline
         Write-Host ("{0,-16}" -f $svc.name) -F White -NoNewline
         Write-Host ("{0,-10}" -f $state) -F $color -NoNewline
         Write-Host (":{0,-6}" -f $svc.port) -F $VyColor.Dim -NoNewline
         Write-Host "http://127.0.0.1:$($svc.port)/v1/" -F $VyColor.Dim
+        if ($state -eq "FAILED" -and $pending.ContainsKey($key) -and $pending[$key].tail) {
+            foreach ($l in $pending[$key].tail) {
+                Write-Host ("        {0}" -f $l) -F $VyColor.Dim
+            }
+        }
     }
     Write-Host ""
     Write-VyRule
@@ -121,7 +122,7 @@ function Start-VerityService($key) {
     $launcher = Join-Path $scriptDir $svc.launcher
     if (-not (Test-Path $launcher)) { Write-Host ""; Write-VyErr "launcher missing: $($svc.launcher)"; Start-Sleep 2; return }
     $proc = Start-Process powershell -ArgumentList "-NoProfile", "-EP", "Bypass", "-File", "`"$launcher`"", "-ServerOnly" -WindowStyle Minimized -PassThru
-    $pending[$key] = @{ proc = $proc; since = Get-Date; failedShown = $false }
+    $pending[$key] = @{ proc = $proc; since = Get-Date; tail = $null }
 }
 
 function Stop-ProcessTree($rootId) {
@@ -157,11 +158,17 @@ function Invoke-Configure {
     if (Test-Path $bat) { Start-Process cmd -ArgumentList "/c", "`"$bat`"" }
 }
 
+function Get-States {
+    $states = @{}
+    foreach ($key in $services.Keys) { $states[$key] = @(Get-ServiceState $key) }
+    return $states
+}
+
 $redirected = [Console]::IsInputRedirected
 
 if ($redirected) {
     # line-input mode (piped/automation): one render, then classic prompt loop
-    Show-Dashboard
+    Show-Dashboard (Get-States)
     while ($true) {
         $c = (Read-Host "Choice").ToUpper()
         switch ($c) {
@@ -176,16 +183,29 @@ if ($redirected) {
         }
         if ($c -eq "Q") { break }
         Start-Sleep 1
-        Show-Dashboard
+        Show-Dashboard (Get-States)
     }
     foreach ($k in $services.Keys) { Stop-VerityService $k }
     exit 0
 }
 
+# interactive: flicker-free - redraw ONLY when a state actually changed or after an action
+$prev = @{}
+$forceRedraw = $true
 :main while ($true) {
-    Show-Dashboard
-    $k = Read-VyKeyTimeout 2000
-    if ($null -eq $k) { continue }   # live refresh
+    $states = Get-States
+    $changed = $forceRedraw
+    foreach ($key in $services.Keys) {
+        if (-not $prev.ContainsKey($key) -or $prev[$key][0] -ne $states[$key][0]) { $changed = $true; break }
+    }
+    if ($changed) {
+        Show-Dashboard $states
+        $prev = @{}; foreach ($key in $states.Keys) { $prev[$key] = $states[$key] }
+        $forceRedraw = $false
+    }
+    $k = Read-VyKeyTimeout 1500
+    if ($null -eq $k) { continue }   # silent poll, no redraw unless something changed
+    $forceRedraw = $true
     switch ([string]$k.KeyChar.ToString().ToUpper()) {
         "S" { foreach ($key in $services.Keys) { Start-VerityService $key } }
         "A" { foreach ($key in $services.Keys) { Stop-VerityService $key } }

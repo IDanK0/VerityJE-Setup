@@ -102,10 +102,10 @@ function spn($label, $step, $total, [scriptblock]$sb, $xa = @()) {
     $el = [math]::Floor($sw.Elapsed.TotalSeconds)
     $ts = if ($el -gt 60) { "$([math]::Floor($el/60))m$($el%60)s" } else { "${el}s" }
     if ($state -eq "Completed") {
-        Write-Host "`r  done  ${pf}${label} (${ts})          " -F $Gn
+        Write-Host "`r  [+] ${pf}${label} (${ts})          " -F $Gn
         if ($out) { "[$label] $out" | Out-File $setupLog -Append -Encoding utf8 }
     } else {
-        Write-Host "`r  FAIL  ${pf}${label}                    " -F $Rd
+        Write-Host "`r  [x] ${pf}${label}                    " -F $Rd
         if ($out)  { Log "  output: $out" $Rd }
         if ($errs) { Log "  error : $($errs[0])" $Rd }
         die "$label failed (see $setupLog)"
@@ -116,6 +116,15 @@ function phase($t) {
     if (-not $script:Yes) { Clear-Host }
     if ($script:hasUI) { Write-VyBanner "Verity JE Setup" $t }
     else { Write-Host "`n  Verity JE Setup - $t`n" -F $Yl }
+}
+
+# consistent key-hint bar (uses VerityUI when available)
+function KeyBar($pairs) {
+    if ($script:hasUI) { Write-VyKeys $pairs }
+    else {
+        Write-Host ""
+        Write-Host ("  " + (($pairs | ForEach-Object { "[{0}] {1}" -f $_[0], $_[1] }) -join "   ")) -F $Dg
+    }
 }
 
 # ----------------------------------------------------------- download helper ---
@@ -425,7 +434,8 @@ while ($true) {
     if ($Yes) { break }
     Clear-Host; Write-Host "`n  Verity JE Setup - System Detection`n" -F $Yl
     Show-System
-    Write-Host "`n  [Enter] continue  [R] rescan  [Q] quit" -F $Dg
+    Write-Host "`n" 
+    KeyBar @(@("Enter","continue"), @("R","rescan"), @("Q","quit"))
     $k = K
     if ($k -and $k.Key -eq "Q") { exit 0 }
     if ($k -and $k.Key -eq "R") { Refresh-Path; Read-System; continue }
@@ -455,7 +465,8 @@ if (-not $Yes) {
             Write-Host $items[$i][0].PadRight(15) -NoNewline -F $Wh
             Write-Host $items[$i][1] -F $Dg
         }
-        Write-Host "`n  [Up/Down] move  [Space] toggle  [Enter] confirm  [Q] quit" -F $Dg
+        Write-Host "`n"
+        KeyBar @(@("Up/Down","move"), @("Space","toggle"), @("Enter","confirm"), @("Q","quit"))
         $k = K
         if ($k.Key -eq "Q") { exit 0 }
         if ($k.Key -eq "UpArrow")   { $cursor = [Math]::Max(0, $cursor - 1) }
@@ -475,7 +486,8 @@ if (-not $Yes) {
                 Write-Host "`n  Install path : $Path" -F $Dg
                 Write-Host "  Torch index  : $(if ($cudaIdx) { $cudaIdx } else { 'cpu' })" -F $Dg
                 Write-Host "  Python       : $bestPy" -F $Dg
-                Write-Host "`n  [Y] proceed  [B] back  [Q] quit" -F $Dg
+                Write-Host "`n"
+                KeyBar @(@("Y","proceed"), @("B","back"), @("Q","quit"))
                 $k2 = K
                 if ($k2.Key -eq "Q") { exit 0 }
                 if ($k2.Key -eq "B") { continue }          # back to selection
@@ -509,24 +521,34 @@ if ($needDeps) {
 
     if ($needVCRedist) {
         # torch (and espeak-ng.dll) need the MSVC runtime; Sandbox/fresh Windows don't have it
-        spn "Install VC++ Runtime" 1 4 {
-            $ErrorActionPreference = "Continue"
-            $tmp = Join-Path $env:TEMP "vc_redist.x64.exe"
-            $dlErr = ""
-            if (Get-Command curl.exe -EA SilentlyContinue) {
-                $cout = & curl.exe -fsSL -o $tmp "https://aka.ms/vs/17/release/vc_redist.x64.exe" 2>&1 | Out-String
-                if ($LASTEXITCODE -ne 0) { $dlErr = "curl exit ${LASTEXITCODE}: $cout" }
-            } else {
-                try { Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $tmp -UseBasicParsing -TimeoutSec 300 -EA Stop } catch { $dlErr = "$_" }
+        $vcDone = $false
+        if (T winget) {
+            spn "Install VC++ Runtime (winget)" 1 4 {
+                $ErrorActionPreference = "Continue"
+                & winget install --id Microsoft.VCRedist.2015+.x64 -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
             }
-            if ($dlErr) { throw "VC++ download failed - $dlErr" }
-            $p = Start-Process -FilePath $tmp -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
-            Remove-Item $tmp -Force -EA SilentlyContinue
-            # 0 = ok, 3010 = ok (reboot pending), 1638 = newer version already present
-            if ($p.ExitCode -notin @(0, 3010, 1638)) { throw "vc_redist exited $($p.ExitCode)" }
+            if ((Test-Path "$env:SystemRoot\System32\vcruntime140.dll") -and (Test-Path "$env:SystemRoot\System32\msvcp140.dll")) { $vcDone = $true }
+        }
+        if (-not $vcDone) {
+            spn "Install VC++ Runtime (direct download)" 1 4 {
+                $ErrorActionPreference = "Continue"
+                $tmp = Join-Path $env:TEMP "vc_redist.x64.exe"
+                $dlErr = ""
+                if (Get-Command curl.exe -EA SilentlyContinue) {
+                    $cout = & curl.exe -fsSL -o $tmp "https://aka.ms/vs/17/release/vc_redist.x64.exe" 2>&1 | Out-String
+                    if ($LASTEXITCODE -ne 0) { $dlErr = "curl exit ${LASTEXITCODE}: $cout" }
+                } else {
+                    try { Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $tmp -UseBasicParsing -TimeoutSec 300 -EA Stop } catch { $dlErr = "$_" }
+                }
+                if ($dlErr) { throw "VC++ download failed - $dlErr" }
+                $p = Start-Process -FilePath $tmp -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+                Remove-Item $tmp -Force -EA SilentlyContinue
+                # 0 = ok, 3010 = ok (reboot pending), 1638 = newer version already present
+                if ($p.ExitCode -notin @(0, 3010, 1638)) { throw "vc_redist exited $($p.ExitCode)" }
+            }
         }
         if ((Test-Path "$env:SystemRoot\System32\vcruntime140.dll") -and (Test-Path "$env:SystemRoot\System32\msvcp140.dll")) {
-            Log "  VC++ Runtime installed" $Gn
+            Log "  [+] VC++ Runtime installed" $Gn
         } else { die "VC++ Runtime install failed - install it manually: https://aka.ms/vs/17/release/vc_redist.x64.exe" }
     }
 
@@ -667,7 +689,7 @@ if ($svc.K) {
 
     # 1/5 Repository (pinned tag, recover from broken clones)
     if (Test-Path (Join-Path $kD "api\src\main.py")) {
-        Log "  skip  [1/5] Repository (present)" $Dg
+        Log "  [i] [1/5] Repository (present)" $Dg
     } else {
         if (Test-Path $kD) {
             $bak = "$kD.broken-$(Get-Date -Format 'yyyyMMddHHmmss')"
@@ -707,16 +729,16 @@ if ($svc.K) {
 
     # 2/5 Environment
     if (Test-Path $kPy) {
-        Log "  skip  [2/5] Environment (present)" $Dg
+        Log "  [i] [2/5] Environment (present)" $Dg
     } else {
         Log "  [2/5] Creating Python environment ($bestPy)..." $Wh
         New-Venv $kD $bestPy
-        Log "  done  [2/5] Environment" $Gn
+        Log "  [+] [2/5] Environment" $Gn
     }
 
     # 3/5 Dependencies: torch first (right index), then the app
     if (Pip-Has $kD "kokoro") {
-        Log "  skip  [3/5] Dependencies (present)" $Dg
+        Log "  [i] [3/5] Dependencies (present)" $Dg
         $out = & $kPy -c "import torch`nok = torch.cuda.is_available()`nif ok:`n    x = torch.randn(64, 64, device='cuda'); torch.cuda.synchronize(); _ = (x @ x).sum().item()`nprint('RESULT:' + ('cuda' if ok else 'cpu'))" 2>&1 | Out-String
         $kokoroUseGpu = (([regex]::Match($out, 'RESULT:(cuda|cpu)')).Groups[1].Value -eq "cuda")
     } else {
@@ -730,7 +752,7 @@ if ($svc.K) {
         try { Pip-Run $kD @(".", "-q") } finally { Pop-Location }
         & $kPy -c "import kokoro, misaki, fastapi, uvicorn" 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { die "Kokoro dependency verification failed" }
-        Log "  done  [3/5] Dependencies ($(if ($kokoroUseGpu) { 'GPU' } else { 'CPU' }))" $Gn
+        Log "  [+] [3/5] Dependencies ($(if ($kokoroUseGpu) { 'GPU' } else { 'CPU' }))" $Gn
     }
 
     # eSpeak via bundled espeakng-loader (no admin, no winget needed)
@@ -748,13 +770,13 @@ if ($svc.K) {
 
     # 4/5 Model
     if ((Test-Path $kM) -and (Get-Item $kM).Length -gt 100MB) {
-        Log "  skip  [4/5] Model (present)" $Dg
+        Log "  [i] [4/5] Model (present)" $Dg
     } else {
         Log "  [4/5] Downloading Kokoro model (~350 MB)..." $Wh
         try {
             Download-File "https://huggingface.co/hexgrad/Kokoro-82M/resolve/main/kokoro-v1_0.pth" $kM
             if ((Get-Item $kM).Length -lt 100MB) { throw "model file too small (truncated)" }
-            Log "  done  [4/5] Model" $Gn
+            Log "  [+] [4/5] Model" $Gn
         } catch { die "Model download failed: $_" }
     }
 
@@ -800,7 +822,7 @@ if ($svc.K) {
         if ($null -ne $savedEnv[$key]) { Set-Item "env:$key" $savedEnv[$key] } else { Remove-Item "env:$key" -EA SilentlyContinue }
     }
     if ($ok) {
-        Log "  done  [5/5] Smoke test passed" $Gn
+        Log "  [+] [5/5] Smoke test passed" $Gn
     } else {
         Log "  smoke test log tail:" $Dg
         if (Test-Path $sErr) { Get-Content $sErr -Tail 12 | ForEach-Object { Log "    $_" $Dg } }
@@ -826,12 +848,12 @@ if ($svc.L) {
     New-Item -ItemType Directory -Path $lD -Force | Out-Null
 
     if (Test-Path $lExe) {
-        Log "  skip  LiteLLM (present)" $Dg
+        Log "  [i] LiteLLM (present)" $Dg
     } else {
         if (-not (Test-Path $lPy)) {
             Log "  [1/2] Creating Python environment ($bestPy)..." $Wh
             New-Venv $lD $bestPy
-            Log "  done  [1/2] Environment" $Gn
+            Log "  [+] [1/2] Environment" $Gn
         }
         Log "  [2/2] Installing LiteLLM (source build, several minutes)..." $Wh
         Repair-Venv $lD
@@ -839,7 +861,7 @@ if ($svc.L) {
         # to build from sdist (no Windows wheels exist). 1.91.0 is the newest
         # pure-Python release. Revisit if litellm ever ships Windows wheels.
         Pip-Run $lD @("litellm[proxy]==1.91.0")
-        Log "  done  [2/2] LiteLLM" $Gn
+        Log "  [+] [2/2] LiteLLM" $Gn
     }
 
     if (Test-Path $lExe) { $litellmExe = $lExe }
@@ -873,16 +895,16 @@ if ($svc.W) {
 
     # 1/3 Environment
     if (Test-Path $wPy) {
-        Log "  skip  [1/3] Environment (present)" $Dg
+        Log "  [i] [1/3] Environment (present)" $Dg
     } else {
         Log "  [1/3] Creating Python environment ($bestPy)..." $Wh
         New-Venv $wD $bestPy
-        Log "  done  [1/3] Environment" $Gn
+        Log "  [+] [1/3] Environment" $Gn
     }
 
     # 2/3 Dependencies
     if (Pip-Has $wD "whisper") {
-        Log "  skip  [2/3] Dependencies (present)" $Dg
+        Log "  [i] [2/3] Dependencies (present)" $Dg
     } else {
         Log "  [2/3] Installing dependencies..." $Wh
         Repair-Venv $wD
@@ -891,7 +913,7 @@ if ($svc.W) {
         Pip-Run $wD @("openai-whisper", "fastapi", "uvicorn[standard]", "python-multipart", "-q")
         & $wPy -c "import whisper, fastapi, uvicorn" 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) { die "Whisper dependency verification failed" }
-        Log "  done  [2/3] Dependencies" $Gn
+        Log "  [+] [2/3] Dependencies" $Gn
     }
 
     # 3/3 Model pre-download (CPU load: device-independent file, works everywhere)
@@ -903,7 +925,7 @@ if ($svc.W) {
         if ($expected) { $wCacheOk = $true }
     }
     if ($wCacheOk) {
-        Log "  skip  [3/3] Model cached" $Dg
+        Log "  [i] [3/3] Model cached" $Dg
     } else {
         spn "Download Whisper model ($wModel)" 3 3 {
             param($pyArg, $modelArg, $logF)
@@ -981,8 +1003,7 @@ if ($svc.L -and -not $SkipOllama) {
         phase "Ollama (optional)"
         Write-Host "  Ollama runs LLMs locally: private, offline, no API key needed." -F $Wh
         Write-Host "  LiteLLM can then route to models like ollama/llama3.2." -F $Dg
-        if ($script:hasUI) { Write-VyKeys @(@("Y","install Ollama"), @("any","skip")) }
-        else { Write-Host "`n  [Y] install  [any other key] skip" -F $Dg }
+        KeyBar @(@("Y","install Ollama"), @("any","skip"))
         $k = K
         if ($k -and ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y')) { $wantOllama = $true }
     }
@@ -1045,7 +1066,7 @@ if ($svc.L -and -not $SkipOllama) {
                 Write-Host $parts[2] -F $Dg
             }
             Write-Host ""
-            Write-Host "  [1-$($sugg.Count)] pull model   [C] custom name   [Enter] skip" -F $Dg
+            KeyBar @(@("1-$($sugg.Count)","pull model"), @("C","custom name"), @("Enter","skip"))
             $k = K
             if ($null -ne $k) {
                 if ($k.KeyChar -eq 'c' -or $k.KeyChar -eq 'C') {
@@ -1119,7 +1140,8 @@ if ($svc.K) {
             if ($italian.Count) { Write-Host "  ITALIAN" -F "Magenta"; foreach ($v in $italian) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
             if ($english.Count) { Write-Host "  ENGLISH" -F "Magenta"; foreach ($v in $english) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
             if ($other.Count)   { Write-Host "  OTHER" -F "Magenta";   foreach ($v in $other)   { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
-            Write-Host "`n  (* = current)  number or name, [Enter] keep $saved" -F $Dg
+            Write-Host "`n  (* = current)" -F $Dg
+            KeyBar @(@("num/name","pick"), @("Enter","keep $saved"))
             Write-Host "  > " -NoNewline -F $Dg
             $vc = Read-Host
             $voicePicked = $saved
@@ -1151,7 +1173,7 @@ Write-Host "  Logs: $logDir" -F $Dg
 if ($Yes) { exit 0 }
 
 Write-Host ""
-Write-Host "  [Y] Launch Manager now   [any other key] Exit" -F $Dg
+KeyBar @(@("Y","launch Manager"), @("any","exit"))
 $k = K
 if ($k -and ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y')) {
     $mgr = Join-Path $Path "Manager.ps1"

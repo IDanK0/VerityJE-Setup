@@ -132,7 +132,8 @@ if ($english.Count) { Write-Host ""; Write-Host "  ENGLISH" -F $VyColor.Accent; 
 if ($other.Count)   { Write-Host ""; Write-Host "  OTHER" -F $VyColor.Accent;   foreach ($v in $other)   { $m = if ($v -eq $savedVoice) { " *" } else { "" }; Write-Host ("  [{0}] {1}{2}" -f $opt, $v, $m) -F White; $opt++ } }
 
 Write-Host ""
-Write-Host "  (* = saved)  [1-9] pick   [Enter] keep $savedVoice" -F $VyColor.Dim
+Write-Host "  (* = saved)" -F $VyColor.Dim
+Write-VyKeys @(@("1-9","pick"), @("Enter","keep $savedVoice"))
 $k = Read-VyKey
 Write-Host ""
 $voice = $savedVoice

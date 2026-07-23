@@ -122,10 +122,11 @@ if ($ServerOnly) {
         Write-Host ""
     }
     Write-Host ""
-    $hint = "  (* = saved)  [1-$($pick.Count)] pick"
-    if ($hasOllama) { $hint += "   [P] pull Ollama model" }
-    $hint += "   [C] custom   [Enter] keep saved"
-    Write-Host $hint -F $VyColor.Dim
+    Write-Host "  (* = saved)" -F $VyColor.Dim
+    $pairs = @(@("1-$($pick.Count)","pick"))
+    if ($hasOllama) { $pairs += ,@("P","pull Ollama model") }
+    $pairs += @("C","custom"), @("Enter","keep saved")
+    Write-VyKeys $pairs
     $k = Read-VyKey
     Write-Host ""
     if ($null -ne $k -and $k.KeyChar -match '^\d$') {
