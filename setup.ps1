@@ -113,10 +113,11 @@ function Download-File($url, $dest, $tries = 3) {
         try {
             if (Test-Path $dest) { Remove-Item $dest -Force }
             if (T "curl.exe") {
-                & curl.exe -fSL --connect-timeout 30 --retry 2 -o $dest $url 2>&1 | Out-Null
+                $cout = & curl.exe -fsSL --connect-timeout 30 --retry 2 -o $dest $url 2>&1 | Out-String
                 if ($LASTEXITCODE -eq 0 -and (Test-Path $dest) -and (Get-Item $dest).Length -gt 0) { return }
+                Log "  download attempt $i/$tries failed: curl exit $LASTEXITCODE $cout" $Dg
             } else {
-                Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900
+                Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900 -EA Stop
                 if ((Test-Path $dest) -and (Get-Item $dest).Length -gt 0) { return }
             }
         } catch {
@@ -467,16 +468,21 @@ if ($needDeps) {
         if (-not (T git)) {
             # winget missing or failed (common in Windows Sandbox): direct download
             spn "Install Git (direct download)" 1 3 {
-                $ErrorActionPreference = "Stop"
+                $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $rel = Invoke-RestMethod "https://api.github.com/repos/git-for-windows/git/releases/latest" -Headers @{ "User-Agent" = "VerityJE-Setup" }
-                $asset = $rel.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
-                if (-not $asset) { throw "Could not find Git installer asset" }
+                $asset = $null
+                if ($rel) { $asset = $rel.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1 }
+                if (-not $asset) { throw "GitHub API: no Git installer asset found" }
                 $tmp = Join-Path $env:TEMP "GitSetup.exe"
+                $dlErr = ""
                 if (Get-Command curl.exe -EA SilentlyContinue) {
-                    & curl.exe -fSL -o $tmp $asset.browser_download_url 2>&1 | Out-Null
+                    $cout = & curl.exe -fsSL -o $tmp $asset.browser_download_url 2>&1 | Out-String
+                    if ($LASTEXITCODE -ne 0) { $dlErr = "curl exit ${LASTEXITCODE}: $cout" }
                 } else {
-                    Invoke-WebRequest $asset.browser_download_url -OutFile $tmp -UseBasicParsing -TimeoutSec 900
+                    try { Invoke-WebRequest $asset.browser_download_url -OutFile $tmp -UseBasicParsing -TimeoutSec 900 -EA Stop } catch { $dlErr = "$_" }
                 }
+                if ($dlErr) { throw "Git download failed - $dlErr" }
+                if (-not (Test-Path $tmp) -or (Get-Item $tmp).Length -lt 10MB) { throw "Git installer missing or truncated" }
                 Start-Process -FilePath $tmp -ArgumentList "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-", "/SUPPRESSMSGBOXES" -Wait
                 Remove-Item $tmp -Force -EA SilentlyContinue
             }
@@ -499,17 +505,22 @@ if ($needDeps) {
         if (-not (T uv)) {
             # winget missing or failed: standalone binary into ~/.local/bin
             spn "Install uv (direct download)" 2 3 {
-                $ErrorActionPreference = "Stop"
+                $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $zip = Join-Path $env:TEMP "uv.zip"
                 $dst = "$env:USERPROFILE\.local\bin"
                 New-Item -ItemType Directory -Path $dst -Force | Out-Null
+                $url = "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip"
+                $dlErr = ""
                 if (Get-Command curl.exe -EA SilentlyContinue) {
-                    & curl.exe -fSL -o $zip "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" 2>&1 | Out-Null
+                    $cout = & curl.exe -fsSL -o $zip $url 2>&1 | Out-String
+                    if ($LASTEXITCODE -ne 0) { $dlErr = "curl exit ${LASTEXITCODE}: $cout" }
                 } else {
-                    Invoke-WebRequest "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 300
+                    try { Invoke-WebRequest $url -OutFile $zip -UseBasicParsing -TimeoutSec 300 -EA Stop } catch { $dlErr = "$_" }
                 }
+                if ($dlErr) { throw "uv download failed - $dlErr" }
                 Expand-Archive $zip $dst -Force
                 Remove-Item $zip -Force -EA SilentlyContinue
+                if (-not (Test-Path (Join-Path $dst "uv.exe"))) { throw "uv.exe not found after extraction" }
             }
             Add-UserPath "$env:USERPROFILE\.local\bin"
             Refresh-Path
@@ -534,23 +545,25 @@ if ($needDeps) {
             $ffDir = Join-Path $Path "tools\ffmpeg"
             spn "Install ffmpeg (direct download)" 3 3 {
                 param($ffDirArg)
-                $ErrorActionPreference = "Stop"
+                $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $zip = Join-Path $env:TEMP "ffmpeg.zip"
-                $ok = $false
+                $ok = $false; $lastErr = ""
                 foreach ($url in @(
                     "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
                     "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
                 )) {
-                    try {
-                        if (Get-Command curl.exe -EA SilentlyContinue) {
-                            & curl.exe -fSL --retry 2 -o $zip $url 2>&1 | Out-Null
-                        } else {
-                            Invoke-WebRequest $url -OutFile $zip -UseBasicParsing -TimeoutSec 900
-                        }
-                        if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 10MB) { $ok = $true; break }
-                    } catch { }
+                    if (Get-Command curl.exe -EA SilentlyContinue) {
+                        $cout = & curl.exe -fsSL --retry 2 -o $zip $url 2>&1 | Out-String
+                        if ($LASTEXITCODE -eq 0 -and (Test-Path $zip) -and (Get-Item $zip).Length -gt 10MB) { $ok = $true; break }
+                        $lastErr = "curl exit ${LASTEXITCODE}: $cout"
+                    } else {
+                        try {
+                            Invoke-WebRequest $url -OutFile $zip -UseBasicParsing -TimeoutSec 900 -EA Stop
+                            if ((Test-Path $zip) -and (Get-Item $zip).Length -gt 10MB) { $ok = $true; break }
+                        } catch { $lastErr = "$_" }
+                    }
                 }
-                if (-not $ok) { throw "ffmpeg download failed" }
+                if (-not $ok) { throw "ffmpeg download failed - $lastErr" }
                 if (Test-Path $ffDirArg) { Remove-Item $ffDirArg -Recurse -Force }
                 Expand-Archive $zip $ffDirArg -Force
                 Remove-Item $zip -Force -EA SilentlyContinue
