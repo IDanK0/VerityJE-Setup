@@ -1001,7 +1001,15 @@ if ($svc.L -and -not $SkipOllama) {
         if (-not $done) {
             try {
                 $tmp = Join-Path $env:TEMP "OllamaSetup.exe"
-                Download-File "https://ollama.com/download/ollama-windows-amd64.exe" $tmp
+                $downloaded = $false
+                foreach ($url in @(
+                    "https://ollama.com/download/OllamaSetup.exe",
+                    "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe"
+                )) {
+                    try { Download-File $url $tmp; $downloaded = $true; break }
+                    catch { Log "  Ollama download failed from $url" $Dg }
+                }
+                if (-not $downloaded) { throw "all Ollama download URLs failed" }
                 Start-Process -FilePath $tmp -ArgumentList "/S" -Wait -EA SilentlyContinue
                 Remove-Item $tmp -Force -EA SilentlyContinue
                 Refresh-Path
