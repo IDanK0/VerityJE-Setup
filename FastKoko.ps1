@@ -76,16 +76,12 @@ if (-not $alreadyUp) {
         -WorkingDirectory $repoPath -WindowStyle Hidden `
         -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
 
-    Write-VyInfo "waiting for readiness (first start warms up the model)..."
-    $ready = $false
-    for ($i = 0; $i -lt 90 -and -not $ready; $i++) {
-        Start-Sleep -Seconds 2
-        if ($proc.HasExited) { break }
+    $ready = Wait-VyFor "FastKoko readiness (first start warms up the model)" {
         try {
             $r = Invoke-WebRequest "http://127.0.0.1:8880/docs" -TimeoutSec 2 -UseBasicParsing -EA SilentlyContinue
-            if ($r.StatusCode -eq 200) { $ready = $true }
-        } catch { }
-    }
+            return ($r.StatusCode -eq 200)
+        } catch { return $false }
+    } 180 $proc
 
     if (-not $ready) {
         Write-VyErr "server did not start. Last log lines:"

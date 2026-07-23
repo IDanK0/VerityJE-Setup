@@ -129,6 +129,58 @@ function Set-VyCfg($dir, $name, $value) {
 }
 
 # --------------------------------------------------------------- misc -------
+# Disable console QuickEdit: a stray click in the window would freeze every
+# running process until Enter (classic "installer stalled" complaint).
+function Disable-VyQuickEdit {
+    try {
+        if (-not ('VyConMode' -as [type])) {
+            Add-Type -Name VyConMode -Namespace Vy -MemberDefinition '
+                [DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h);
+                [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out int m);
+                [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, int m);'
+        }
+        $h = [Vy.VyConMode]::GetStdHandle(-10)   # STD_INPUT_HANDLE
+        $m = 0
+        if ([Vy.VyConMode]::GetConsoleMode($h, [ref]$m)) {
+            # ENABLE_EXTENDED_FLAGS (0x80) on, ENABLE_QUICK_EDIT_MODE (0x40) off
+            $null = [Vy.VyConMode]::SetConsoleMode($h, ($m -bor 0x80) -band (-bnot 0x40))
+        }
+    } catch { }
+}
+Disable-VyQuickEdit
+
+# ONE spinner look for the whole project: waits for a condition (or a process
+# exit), shows elapsed time; optional live file-size for downloads.
+function Wait-VyFor($label, [scriptblock]$cond, $timeoutSec = 120, $proc = $null, $sizeFile = "") {
+    $ch = @("\", "|", "/", "-"); $i = 0; $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $timeoutSec) {
+        if ($proc -and $proc.HasExited) { break }
+        $ok = $false
+        if ($cond) { $ok = & $cond }
+        if ($ok) {
+            Write-Host ("`r  [+] {0} ({1}s)          " -f $label, [math]::Floor($sw.Elapsed.TotalSeconds)) -F $script:VyColor.Ok
+            return $true
+        }
+        $ts = [math]::Floor($sw.Elapsed.TotalSeconds)
+        $extra = ""
+        if ($sizeFile -and (Test-Path $sizeFile)) { $extra = (" - {0:N1} MB" -f ((Get-Item $sizeFile).Length / 1MB)) }
+        Write-Host ("`r  {0} {1}... ({2}s{3})   " -f $ch[$i % 4], $label, $ts, $extra) -NoNewline -F $script:VyColor.Text
+        Start-Sleep -Milliseconds 300; $i++
+    }
+    if ($proc -and $proc.HasExited) {
+        # exited before the condition became true: success only with a clean exit
+        $code = $null; try { $code = $proc.ExitCode } catch { }
+        if ($code -eq 0) {
+            Write-Host ("`r  [+] {0} ({1}s)          " -f $label, [math]::Floor($sw.Elapsed.TotalSeconds)) -F $script:VyColor.Ok
+            return $true
+        }
+        Write-Host ("`r  [x] {0} (process exited$(if ($null -ne $code) { " $code" }))          " -f $label) -F $script:VyColor.Err
+        return $false
+    }
+    Write-Host ("`r  [x] {0} (timeout)          " -f $label) -F $script:VyColor.Err
+    return $false
+}
+
 function Test-VyPort($port) {
     try {
         return ($null -ne (Get-NetTCPConnection -LocalPort $port -State Listen -EA SilentlyContinue))

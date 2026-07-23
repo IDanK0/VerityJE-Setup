@@ -33,6 +33,20 @@ $uiFile = Join-Path $scriptRoot "VerityUI.ps1"
 $script:hasUI = Test-Path $uiFile
 if ($script:hasUI) { . $uiFile }
 
+# disable console QuickEdit even without VerityUI (stray click = frozen process)
+if (-not $script:hasUI) {
+    try {
+        Add-Type -Name VyConMode2 -Namespace Vy2 -MemberDefinition '
+            [DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h);
+            [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out int m);
+            [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, int m);'
+        $h = [Vy2.VyConMode2]::GetStdHandle(-10); $m = 0
+        if ([Vy2.VyConMode2]::GetConsoleMode($h, [ref]$m)) {
+            $null = [Vy2.VyConMode2]::SetConsoleMode($h, ($m -bor 0x80) -band (-bnot 0x40))
+        }
+    } catch { }
+}
+
 if (-not $Path) { $Path = $scriptRoot }
 $Path = [IO.Path]::GetFullPath($Path)
 $startDir = (Get-Location).Path
@@ -112,6 +126,55 @@ function spn($label, $step, $total, [scriptblock]$sb, $xa = @()) {
     }
 }
 
+# ONE spinner for every long operation. Processes are started via
+# System.Diagnostics.Process (Start-Process can return ExitCode=NULL when
+# output is redirected); stdout/stderr stream to log files via events.
+function Start-LoggedProc($file, [string[]]$argList, $workDir, $outF, $errF) {
+    Remove-Item $outF, $errF -Force -EA SilentlyContinue
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $file
+    $psi.Arguments = ($argList | ForEach-Object { if ($_ -match '\s|"') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join " "
+    $psi.WorkingDirectory = $workDir
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $p = New-Object Diagnostics.Process
+    $p.StartInfo = $psi
+    $null = $p.Start()
+    $act = {
+        if ($null -ne $EventArgs.Data) {
+            try { [IO.File]::AppendAllText($Event.MessageData, $EventArgs.Data + "`n") } catch { }
+        }
+    }
+    $o = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -Action $act -MessageData $outF
+    $e = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -Action $act -MessageData $errF
+    $p.BeginOutputReadLine()
+    $p.BeginErrorReadLine()
+    return @{ proc = $p; subs = @($o, $e) }
+}
+
+function Wait-Spin($lp, $label, $step = 0, $total = 0, $sizeFile = "") {
+    $p = $lp.proc
+    $ch = @("\", "|", "/", "-"); $i = 0; $sw = [Diagnostics.Stopwatch]::StartNew()
+    $pf = if ($total -gt 0) { "[$step/$total] " } else { "" }
+    while (-not $p.HasExited) {
+        $el = [math]::Floor($sw.Elapsed.TotalSeconds)
+        $ts = if ($el -gt 60) { "$([math]::Floor($el/60))m$($el%60)s" } else { "${el}s" }
+        $extra = ""
+        if ($sizeFile -and (Test-Path $sizeFile)) { $extra = (" - {0:N1} MB" -f ((Get-Item $sizeFile).Length / 1MB)) }
+        Write-Host ("`r  {0} {1}{2}... ({3}{4})   " -f $ch[$i % 4], $pf, $label, $ts, $extra) -NoNewline -F $Wh
+        Start-Sleep -Milliseconds 250; $i++
+    }
+    $p.WaitForExit()   # flush async log events
+    foreach ($s in $lp.subs) { try { Unregister-Event -SourceIdentifier $s.Name -Force -EA SilentlyContinue; Remove-Job -Job $s -Force -EA SilentlyContinue } catch { } }
+    $el = [math]::Floor($sw.Elapsed.TotalSeconds)
+    $ts = if ($el -gt 60) { "$([math]::Floor($el/60))m$($el%60)s" } else { "${el}s" }
+    if ($p.ExitCode -eq 0) { Write-Host "`r  [+] ${pf}${label} (${ts})          " -F $Gn; return $true }
+    Write-Host "`r  [x] ${pf}${label} (exit $($p.ExitCode))          " -F $Rd
+    return $false
+}
+
 function phase($t) {
     if (-not $script:Yes) { Clear-Host }
     if ($script:hasUI) { Write-VyBanner "Verity JE Setup" $t }
@@ -131,19 +194,19 @@ function KeyBar($pairs) {
 function Download-File($url, $dest, $tries = 3) {
     $parent = Split-Path $dest -Parent
     if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    $name = Split-Path $dest -Leaf
     for ($i = 1; $i -le $tries; $i++) {
-        try {
-            if (Test-Path $dest) { Remove-Item $dest -Force }
-            if (T "curl.exe") {
-                $cout = & curl.exe -fsSL --connect-timeout 30 --retry 2 -o $dest $url 2>&1 | Out-String
-                if ($LASTEXITCODE -eq 0 -and (Test-Path $dest) -and (Get-Item $dest).Length -gt 0) { return }
-                Log "  download attempt $i/$tries failed: curl exit $LASTEXITCODE $cout" $Dg
-            } else {
+        if (Test-Path $dest) { Remove-Item $dest -Force }
+        if (T "curl.exe") {
+            $lp = Start-LoggedProc "curl.exe" @("-fsSL", "--connect-timeout", "30", "--retry", "2", "-o", $dest, $url) $Path (Join-Path $logDir "dl-last.log") (Join-Path $logDir "dl-last-err.log")
+            $ok = Wait-Spin $lp "Download $name (attempt $i/$tries)" 0 0 $dest
+            if ($ok -and (Test-Path $dest) -and (Get-Item $dest).Length -gt 0) { return }
+            Log "  download attempt $i/$tries failed (curl exit $($lp.proc.ExitCode))" $Dg
+        } else {
+            try {
                 Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 900 -EA Stop
                 if ((Test-Path $dest) -and (Get-Item $dest).Length -gt 0) { return }
-            }
-        } catch {
-            Log "  download attempt $i/$tries failed: $($_.Exception.Message)" $Dg
+            } catch { Log "  download attempt $i/$tries failed: $($_.Exception.Message)" $Dg }
         }
         Start-Sleep -Seconds (2 * $i)
     }
@@ -251,14 +314,17 @@ function Pip-Has($venvDir, $module) {
 # plain pip dies with WinError 206 in any moderately deep install folder.
 function Pip-Run($venvDir, $arguments) {
     $py = Join-Path $venvDir ".venv\Scripts\python.exe"
-    $logF = Join-Path $logDir "pip-last.log"
+    $logF = Join-Path $logDir "pip-last.log"; $errF = Join-Path $logDir "pip-last-err.log"
     $env:UV_HTTP_TIMEOUT = "600"
-    & uv pip install --python $py @arguments *> $logF
-    if ($LASTEXITCODE -ne 0) {
-        $tail = (Get-Content $logF -Tail 15 | Out-String).Trim()
+    $pkgs = ($arguments | Where-Object { $_ -notlike "-*" } | Select-Object -First 3) -join ", "
+    $lp = Start-LoggedProc "uv" (@("pip", "install", "--python", $py) + $arguments) (Get-Location).Path $logF $errF
+    $ok = Wait-Spin $lp "Install $pkgs"
+    if (-not $ok) {
+        $tail = (Get-Content $errF -Tail 12 -EA SilentlyContinue | Out-String).Trim()
+        if (-not $tail) { $tail = (Get-Content $logF -Tail 12 -EA SilentlyContinue | Out-String).Trim() }
         Log "  uv pip failed: install $($arguments -join ' ')" $Rd
         Log $tail $Dg
-        die "package install failed (see $logF)"
+        die "package install failed (see $errF)"
     }
 }
 
@@ -282,11 +348,12 @@ function Repair-Venv($venvDir) {
 }
 
 function New-Venv($dir, $pyVer) {
-    Push-Location $dir
-    $out = & uv venv .venv --python $pyVer --seed 2>&1 | Out-String
-    Pop-Location
+    $out = Join-Path $logDir "venv-last.log"; $err = Join-Path $logDir "venv-last-err.log"
+    $lp = Start-LoggedProc "uv" @("venv", ".venv", "--python", $pyVer, "--seed") $dir $out $err
+    $null = Wait-Spin $lp "Create Python environment ($pyVer)"
     if (-not (Test-Path (Join-Path $dir ".venv\Scripts\python.exe"))) {
-        die "venv creation failed in $dir : $out"
+        $tail = (Get-Content $err -Tail 10 -EA SilentlyContinue | Out-String).Trim()
+        die "venv creation failed in $dir : $tail"
     }
 }
 
@@ -790,8 +857,6 @@ if ($svc.K) {
     [IO.File]::WriteAllLines($envFile, $envContent, (New-Object Text.UTF8Encoding($false)))
 
     # 5/5 Smoke test: boot the real server, wait for readiness, shut it down
-    Log "  [5/5] Smoke test (booting server once)..." $Wh
-    $smokePort = 8899
     $savedEnv = @{
         MODEL_DIR = $env:MODEL_DIR; VOICES_DIR = $env:VOICES_DIR; USE_GPU = $env:USE_GPU
         PHONEMIZER_ESPEAK_LIBRARY = $env:PHONEMIZER_ESPEAK_LIBRARY; ESPEAK_DATA_PATH = $env:ESPEAK_DATA_PATH
@@ -803,15 +868,18 @@ if ($svc.K) {
     $env:PYTHONUTF8 = "1"
     if ($espeakLib)  { $env:PHONEMIZER_ESPEAK_LIBRARY = $espeakLib }
     if ($espeakData) { $env:ESPEAK_DATA_PATH = $espeakData }
+    $smokePort = 8899
     $kUvicorn = Join-Path $kD ".venv\Scripts\uvicorn.exe"
     $sOut = Join-Path $logDir "kokoro-smoke.out.log"; $sErr = Join-Path $logDir "kokoro-smoke.err.log"
     Remove-Item $sOut, $sErr -Force -EA SilentlyContinue
     $proc = Start-Process -FilePath $kUvicorn -ArgumentList "api.src.main:app", "--host", "127.0.0.1", "--port", "$smokePort" `
         -WorkingDirectory $kD -WindowStyle Hidden -RedirectStandardOutput $sOut -RedirectStandardError $sErr -PassThru
     $ok = $false
+    $ch = @("\", "|", "/", "-")
     for ($i = 0; $i -lt 120 -and -not $ok; $i++) {
         Start-Sleep -Seconds 2
         if ($proc.HasExited) { break }
+        Write-Host ("`r  {0} [5/5] Smoke test (booting server)... ({1}s)   " -f $ch[$i % 4], ($i * 2)) -NoNewline -F $Wh
         try {
             $r = Invoke-WebRequest "http://127.0.0.1:$smokePort/docs" -TimeoutSec 2 -UseBasicParsing -EA SilentlyContinue
             if ($r.StatusCode -eq 200) { $ok = $true }
@@ -822,8 +890,9 @@ if ($svc.K) {
         if ($null -ne $savedEnv[$key]) { Set-Item "env:$key" $savedEnv[$key] } else { Remove-Item "env:$key" -EA SilentlyContinue }
     }
     if ($ok) {
-        Log "  [+] [5/5] Smoke test passed" $Gn
+        Write-Host "`r  [+] [5/5] Smoke test passed          " -F $Gn
     } else {
+        Write-Host "`r  [x] [5/5] Smoke test failed          " -F $Rd
         Log "  smoke test log tail:" $Dg
         if (Test-Path $sErr) { Get-Content $sErr -Tail 12 | ForEach-Object { Log "    $_" $Dg } }
         if (Test-Path $sOut) { Get-Content $sOut -Tail 12 | ForEach-Object { Log "    $_" $Dg } }
@@ -997,15 +1066,23 @@ Save-Config @{
 $ollamaPulled = ""
 if ($svc.L -and -not $SkipOllama) {
     $wantOllama = $false
-    if ($Yes) { $wantOllama = [bool]$WithOllama }
+    if ($Yes) {
+        $wantOllama = [bool]$WithOllama
+        if (-not $wantOllama) { Log "  [i] Ollama skipped (pass -WithOllama to include)" $Dg }
+    }
     elseif (T ollama) { $wantOllama = $true }
     else {
         phase "Ollama (optional)"
         Write-Host "  Ollama runs LLMs locally: private, offline, no API key needed." -F $Wh
         Write-Host "  LiteLLM can then route to models like ollama/llama3.2." -F $Dg
-        KeyBar @(@("Y","install Ollama"), @("any","skip"))
-        $k = K
-        if ($k -and ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y')) { $wantOllama = $true }
+        KeyBar @(@("Y","install Ollama"), @("N","skip"))
+        # explicit Y or N required - Enter alone must NOT silently skip this
+        while ($true) {
+            $k = K
+            if ($null -eq $k) { break }
+            if ($k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y') { $wantOllama = $true; break }
+            if ($k.KeyChar -eq 'n' -or $k.KeyChar -eq 'N') { break }
+        }
     }
 
     if ($wantOllama -and -not (T ollama)) {
@@ -1031,7 +1108,8 @@ if ($svc.L -and -not $SkipOllama) {
                     catch { Log "  Ollama download failed from $url" $Dg }
                 }
                 if (-not $downloaded) { throw "all Ollama download URLs failed" }
-                Start-Process -FilePath $tmp -ArgumentList "/S" -Wait -EA SilentlyContinue
+                $lp = Start-LoggedProc $tmp @("/S") $Path (Join-Path $logDir "ollama-install.log") (Join-Path $logDir "ollama-install-err.log")
+                $null = Wait-Spin $lp "Install Ollama"
                 Remove-Item $tmp -Force -EA SilentlyContinue
                 Refresh-Path
                 if (T ollama) { $done = $true }
@@ -1112,6 +1190,7 @@ if ($ollamaPulled) {
     if (Test-Path $curCfgPath) { try { $curCfg = Import-PowerShellDataFile $curCfgPath } catch { } }
     if (-not $curCfg.LiteLLMModel) { Update-Config "LiteLLMModel" $ollamaPulled }
 }
+elseif ($svc.L -and $SkipOllama) { Log "  [i] Ollama skipped (remove -SkipOllama or pass -WithOllama)" $Dg }
 
 # ================================================================ PHASE 10 ==
 # Default Kokoro voice (read from the .pt voice files - no server needed)
@@ -1169,6 +1248,9 @@ if ($ollamaPulled) { Write-Host "  Ollama model   -> $ollamaPulled  (LiteLLM def
 if ($voicePicked)  { Write-Host "  Default voice  -> $voicePicked" -F $Gn }
 Write-Host ""
 Write-Host "  Logs: $logDir" -F $Dg
+if ($svc.L -and -not $ollamaPulled -and -not (T ollama)) {
+    Write-Host "  Tip: Ollama not installed - re-run Setup.bat anytime to add local LLMs" -F $Dg
+}
 
 if ($Yes) { exit 0 }
 

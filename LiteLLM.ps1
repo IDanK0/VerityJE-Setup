@@ -246,12 +246,7 @@ if ($ServerOnly) {
     Remove-Item $outLog, $errLog -Force -EA SilentlyContinue
     $proc = Start-Process -FilePath $exe -ArgumentList "--model", $model, "--port", $port, "--host", "127.0.0.1" `
         -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
-    $up = $false
-    for ($i = 0; $i -lt 45 -and -not $up; $i++) {
-        Start-Sleep -Seconds 2
-        if ($proc.HasExited) { break }
-        if (Test-VyPort ([int]$port)) { $up = $true }
-    }
+    $up = Wait-VyFor "LiteLLM startup" { return (Test-VyPort ([int]$port)) } 90 $proc
     if ($up) { Write-VyOk "SERVER READY: http://127.0.0.1:$port/v1/"; Stop-VyTranscript; exit 0 }
     Write-VyErr "LiteLLM did not start. Last log lines:"
     Get-VyLogTail $errLog 12

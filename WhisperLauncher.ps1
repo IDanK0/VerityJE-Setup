@@ -54,16 +54,12 @@ $proc = Start-Process -FilePath $venvPy -ArgumentList "`"$serverPy`"" `
     -WorkingDirectory $scriptDir -WindowStyle Hidden `
     -RedirectStandardOutput $outLog -RedirectStandardError $errLog -PassThru
 
-Write-VyInfo "waiting for readiness (model loading can take a minute)..."
-$ready = $false
-for ($i = 0; $i -lt 150 -and -not $ready; $i++) {
-    Start-Sleep -Seconds 2
-    if ($proc.HasExited) { break }
+$ready = Wait-VyFor "Whisper readiness (model loading can take a minute)" {
     try {
         $r = Invoke-WebRequest "http://127.0.0.1:9000/v1/models" -TimeoutSec 2 -UseBasicParsing -EA SilentlyContinue
-        if ($r.StatusCode -eq 200) { $ready = $true }
-    } catch { }
-}
+        return ($r.StatusCode -eq 200)
+    } catch { return $false }
+} 300 $proc
 
 if (-not $ready) {
     Write-VyErr "server did not start. Last log lines:"
