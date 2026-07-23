@@ -118,8 +118,8 @@ try {
 if ($names.Count -eq 0) { Write-VyErr "no voices reported by the server"; Stop-VyTranscript; Read-Host "Press Enter"; exit 1 }
 
 $italian = @($names | Where-Object { $_ -match '^i[fm]_' })
-$english = @($names | Where-Object { $_ -match '^[abef]_' })
-$other   = @($names | Where-Object { $_ -notmatch '^i[fm]_' -and $_ -notmatch '^[abef]_' })
+$english = @($names | Where-Object { $_ -match '^[abef][fm]_' })
+$other   = @($names | Where-Object { $_ -notmatch '^i[fm]_' -and $_ -notmatch '^[abef][fm]_' })
 $all = @($italian) + @($english) + @($other)
 
 $savedVoice = Get-VyCfg $cfg "KokoroVoice"

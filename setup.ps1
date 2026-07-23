@@ -1,4 +1,4 @@
-﻿<# ============================================================================
+<# ============================================================================
  Verity JE Setup - one-click AI backend installer
  Installs and configures: FastKoko (TTS), LiteLLM (LLM gateway), Whisper (STT)
 
@@ -17,6 +17,7 @@ param(
     [switch]$SkipOllama,
     [switch]$WithOllama,
     [string]$OllamaModel = "",
+    [string]$KokoroVoice = "",
     [switch]$SelfTest
 )
 
@@ -321,6 +322,24 @@ function Save-Config($ht) {
     [void]$sb.AppendLine("}")
     [IO.File]::WriteAllText($cfgPath, $sb.ToString(), (New-Object Text.UTF8Encoding($false)))
     Log "  config written: $cfgPath" $Dg
+}
+
+# read-modify-write a single key in config.psd1
+function Update-Config($name, $value) {
+    $cfgPath = Join-Path $Path "config.psd1"
+    $cfg = @{}
+    if (Test-Path $cfgPath) { try { $cfg = Import-PowerShellDataFile $cfgPath } catch { } }
+    $cfg[$name] = $value
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.AppendLine("@{")
+    foreach ($k in ($cfg.Keys | Sort-Object)) {
+        $v = $cfg[$k]
+        if ($v -is [bool]) { $vv = if ($v) { '$true' } else { '$false' } }
+        else { $vv = "'" + ([string]$v -replace "'", "''") + "'" }
+        [void]$sb.AppendLine("    $k = $vv")
+    }
+    [void]$sb.AppendLine("}")
+    [IO.File]::WriteAllText($cfgPath, $sb.ToString(), (New-Object Text.UTF8Encoding($false)))
 }
 
 # ================================================================ DETECTION ==
@@ -905,7 +924,54 @@ if ($svc.W) {
 }
 
 # ================================================================= PHASE 8 ==
-# Ollama (optional, local LLMs for LiteLLM)
+# Copy launchers if installing outside the repo folder, then write base config
+phase "Finalizing"
+
+if ($Path -ne $scriptRoot) {
+    $toCopy = @("VerityUI.ps1", "Manager.bat", "Manager.ps1", "FastKoko.bat", "FastKoko.ps1",
+                "LiteLLM.bat", "LiteLLM.ps1", "WhisperServer.bat", "WhisperLauncher.ps1")
+    foreach ($f in $toCopy) {
+        $src = Join-Path $scriptRoot $f
+        if (Test-Path $src) { Copy-Item $src (Join-Path $Path $f) -Force }
+    }
+    $srcSrv = Join-Path $scriptRoot "WhisperServer\server.py"
+    if (Test-Path $srcSrv) {
+        New-Item -ItemType Directory -Path (Join-Path $Path "WhisperServer") -Force | Out-Null
+        Copy-Item $srcSrv (Join-Path $Path "WhisperServer\server.py") -Force
+    }
+    Log "  launchers copied to $Path" $Dg
+}
+
+if (-not $uvBin) { $uvBin = Get-UvToolBin }
+if (-not $ffmpegBin -and (T ffmpeg)) { $ffmpegBin = Split-Path -Parent (Get-Command ffmpeg).Source }
+
+# preserve user choices from a previous config (launcher saves them there)
+$prevCfg = @{}
+$prevCfgPath = Join-Path $Path "config.psd1"
+if (Test-Path $prevCfgPath) { try { $prevCfg = Import-PowerShellDataFile $prevCfgPath } catch { } }
+$keepLLM   = $(if ($prevCfg.LiteLLMModel) { $prevCfg.LiteLLMModel } else { "" })
+$keepVoice = $(if ($prevCfg.KokoroVoice) { $prevCfg.KokoroVoice } else { "" })
+$keepOllama = $(if ($prevCfg.OllamaModel) { $prevCfg.OllamaModel } else { "" })
+
+Save-Config @{
+    WhisperModel   = $wModel
+    CudaIndex      = $(if ($cudaIdx) { $cudaIdx } else { "cpu" })
+    KokoroUseGpu   = $kokoroUseGpu
+    PythonVersion  = $bestPy
+    UvBin          = $uvBin
+    LiteLLMExe     = $litellmExe
+    EspeakLibrary  = $espeakLib
+    EspeakDataPath = $espeakData
+    FfmpegBin      = $ffmpegBin
+    InstallPath    = $Path
+    OllamaModel    = $keepOllama
+    LiteLLMModel   = $keepLLM
+    KokoroVoice    = $keepVoice
+}
+
+# ================================================================= PHASE 9 ==
+# Ollama (optional, local LLMs for LiteLLM) - at the END so the whole install
+# above runs unattended; config.psd1 is already safely written at this point.
 $ollamaPulled = ""
 if ($svc.L -and -not $SkipOllama) {
     $wantOllama = $false
@@ -1009,53 +1075,59 @@ if ($svc.L -and -not $SkipOllama) {
     }
 }
 
-# ================================================================= PHASE 9 ==
-# Copy launchers if installing outside the repo folder, then write config
-phase "Finalizing"
-
-if ($Path -ne $scriptRoot) {
-    $toCopy = @("VerityUI.ps1", "Manager.bat", "Manager.ps1", "FastKoko.bat", "FastKoko.ps1",
-                "LiteLLM.bat", "LiteLLM.ps1", "WhisperServer.bat", "WhisperLauncher.ps1")
-    foreach ($f in $toCopy) {
-        $src = Join-Path $scriptRoot $f
-        if (Test-Path $src) { Copy-Item $src (Join-Path $Path $f) -Force }
-    }
-    $srcSrv = Join-Path $scriptRoot "WhisperServer\server.py"
-    if (Test-Path $srcSrv) {
-        New-Item -ItemType Directory -Path (Join-Path $Path "WhisperServer") -Force | Out-Null
-        Copy-Item $srcSrv (Join-Path $Path "WhisperServer\server.py") -Force
-    }
-    Log "  launchers copied to $Path" $Dg
-}
-
-if (-not $uvBin) { $uvBin = Get-UvToolBin }
-if (-not $ffmpegBin -and (T ffmpeg)) { $ffmpegBin = Split-Path -Parent (Get-Command ffmpeg).Source }
-
-# preserve user choices from a previous config (launcher saves them there)
-$prevCfg = @{}
-$prevCfgPath = Join-Path $Path "config.psd1"
-if (Test-Path $prevCfgPath) { try { $prevCfg = Import-PowerShellDataFile $prevCfgPath } catch { } }
-$keepLLM  = $(if ($ollamaPulled) { $ollamaPulled } elseif ($prevCfg.LiteLLMModel) { $prevCfg.LiteLLMModel } else { "" })
-$keepVoice = $(if ($prevCfg.KokoroVoice) { $prevCfg.KokoroVoice } else { "" })
-
-Save-Config @{
-    WhisperModel   = $wModel
-    CudaIndex      = $(if ($cudaIdx) { $cudaIdx } else { "cpu" })
-    KokoroUseGpu   = $kokoroUseGpu
-    PythonVersion  = $bestPy
-    UvBin          = $uvBin
-    LiteLLMExe     = $litellmExe
-    EspeakLibrary  = $espeakLib
-    EspeakDataPath = $espeakData
-    FfmpegBin      = $ffmpegBin
-    InstallPath    = $Path
-    OllamaModel    = $(if ($ollamaPulled) { $ollamaPulled } elseif ($prevCfg.OllamaModel) { $prevCfg.OllamaModel } else { "" })
-    # a freshly pulled local model becomes LiteLLM's default right away
-    LiteLLMModel   = $keepLLM
-    KokoroVoice    = $keepVoice
+# a freshly pulled local model becomes LiteLLM's default right away
+if ($ollamaPulled) {
+    Update-Config "OllamaModel" $ollamaPulled
+    $curCfg = @{}
+    $curCfgPath = Join-Path $Path "config.psd1"
+    if (Test-Path $curCfgPath) { try { $curCfg = Import-PowerShellDataFile $curCfgPath } catch { } }
+    if (-not $curCfg.LiteLLMModel) { Update-Config "LiteLLMModel" $ollamaPulled }
 }
 
 # ================================================================ PHASE 10 ==
+# Default Kokoro voice (read from the .pt voice files - no server needed)
+$voicePicked = ""
+if ($svc.K) {
+    $voiceDir = Join-Path $Path "Kokoro-FastAPI\api\src\voices\v1_0"
+    $names = @()
+    if (Test-Path $voiceDir) {
+        $names = @(Get-ChildItem $voiceDir -Filter "*.pt" -EA SilentlyContinue | ForEach-Object { $_.BaseName } | Sort-Object)
+    }
+    if ($names.Count -gt 0) {
+        $italian = @($names | Where-Object { $_ -match '^i[fm]_' })
+        $english = @($names | Where-Object { $_ -match '^[abef][fm]_' })
+        $other   = @($names | Where-Object { $_ -notmatch '^i[fm]_' -and $_ -notmatch '^[abef][fm]_' })
+        $all = @($italian) + @($english) + @($other)
+
+        if ($Yes) {
+            if ($KokoroVoice -and ($all -contains $KokoroVoice)) { $voicePicked = $KokoroVoice }
+        } else {
+            phase "FastKoko - Default Voice"
+            $saved = $keepVoice
+            if (-not $saved -or ($all -notcontains $saved)) { $saved = $all[0] }
+            Write-Host "  The Verity mod sends its own voice per request; this is the" -F $Dg
+            Write-Host "  local default used by FastKoko.bat tests.`n" -F $Dg
+            $opt = 1
+            if ($italian.Count) { Write-Host "  ITALIAN" -F "Magenta"; foreach ($v in $italian) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
+            if ($english.Count) { Write-Host "  ENGLISH" -F "Magenta"; foreach ($v in $english) { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
+            if ($other.Count)   { Write-Host "  OTHER" -F "Magenta";   foreach ($v in $other)   { $m = if ($v -eq $saved) { " *" } else { "" }; Write-Host ("  {0,2}. {1}{2}" -f $opt, $v, $m) -F $Wh; $opt++ } }
+            Write-Host "`n  (* = current)  number or name, [Enter] keep $saved" -F $Dg
+            Write-Host "  > " -NoNewline -F $Dg
+            $vc = Read-Host
+            $voicePicked = $saved
+            if ($vc -match '^\d+$') {
+                $ix = [int]$vc - 1
+                if ($ix -ge 0 -and $ix -lt $all.Count) { $voicePicked = $all[$ix] }
+            } elseif ($vc.Trim() -and ($all -contains $vc.Trim())) {
+                $voicePicked = $vc.Trim()
+            }
+            Log "  default voice: $voicePicked" $Gn
+        }
+        if ($voicePicked) { Update-Config "KokoroVoice" $voicePicked }
+    }
+}
+
+# ================================================================ PHASE 11 ==
 if (-not $Yes) { Clear-Host }
 if ($script:hasUI) { Write-VyBanner "Verity JE Setup" "Complete!" }
 else { Write-Host "`n  Verity JE Setup - Complete!`n" -F $Yl }
@@ -1064,6 +1136,7 @@ if ($svc.K) { Write-Host "  FastKoko (TTS) -> http://127.0.0.1:8880/v1/   FastKo
 if ($svc.L) { Write-Host "  LiteLLM  (AI)  -> http://127.0.0.1:4000/v1/   LiteLLM.bat" -F $Gn }
 if ($svc.W) { Write-Host "  Whisper  (STT) -> http://127.0.0.1:9000/v1/   WhisperServer.bat ($wModel)" -F $Gn }
 if ($ollamaPulled) { Write-Host "  Ollama model   -> $ollamaPulled  (LiteLLM default)" -F $Gn }
+if ($voicePicked)  { Write-Host "  Default voice  -> $voicePicked" -F $Gn }
 Write-Host ""
 Write-Host "  Logs: $logDir" -F $Dg
 

@@ -111,7 +111,11 @@ Choices are persisted in `config.psd1`: Kokoro voice, LiteLLM model, API keys (u
 
 ### Ollama (local LLMs, offline)
 
-Setup offers Ollama after LiteLLM (install via winget or direct download, daemon auto-start, RAM-aware model suggestions). A freshly pulled model automatically becomes LiteLLM's default, so `Manager -> [S]` works out of the box with zero API keys. Manage models anytime from `LiteLLM.bat` (`[P]` pulls a new one). Use any model id as `ollama/<name>` (e.g. `ollama/llama3.2`, `ollama/gemma3n:e4b`).
+Setup asks about Ollama **at the very end** of the install - everything else is already downloaded and configured by then (the core install never stops waiting for input). It offers install via winget or direct download, daemon auto-start, and RAM-aware model suggestions. A freshly pulled model automatically becomes LiteLLM's default, so `Manager -> [S]` works out of the box with zero API keys. Manage models anytime from `LiteLLM.bat` (`[P]` pulls a new one). Use any model id as `ollama/<name>` (e.g. `ollama/llama3.2`, `ollama/gemma3n:e4b`).
+
+### Default TTS voice
+
+Right after Ollama, setup asks for your **default Kokoro voice** (read from the installed voice files, grouped IT/EN/other, saved to `config.psd1`). The Verity mod still sends its own voice per API request; this default is what `FastKoko.bat` uses for its tests. Change it anytime from `FastKoko.bat`.
 
 ---
 
