@@ -766,33 +766,36 @@ if ($svc.K) {
 
 # ================================================================= PHASE 6 ==
 # LiteLLM (AI gateway)
+# litellm ships Linux-only wheels on PyPI: on Windows it always builds from
+# source. "uv tool install" builds in cache dirs that App Control / Sandbox
+# policies block -> use a dedicated project venv (proven to build fine).
 $litellmExe = ""
 if ($svc.L) {
     phase "LiteLLM - AI Gateway"
 
-    $litellmExe = (Get-Command litellm -EA SilentlyContinue).Source
-    if ($litellmExe) {
-        Log "  skip  LiteLLM ($litellmExe)" $Dg
+    $lD   = Join-Path $Path "LiteLLM"
+    $lPy  = Join-Path $lD ".venv\Scripts\python.exe"
+    $lExe = Join-Path $lD ".venv\Scripts\litellm.exe"
+    New-Item -ItemType Directory -Path $lD -Force | Out-Null
+
+    if (Test-Path $lExe) {
+        Log "  skip  LiteLLM (present)" $Dg
     } else {
-        spn "Install LiteLLM" 0 0 {
-            param($pyArg)
-            $ErrorActionPreference = "Continue"
-            & uv tool install "litellm[proxy]" --python $pyArg 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                & uv tool install "litellm[proxy]" 2>&1 | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "uv tool install litellm failed" }
-            }
-        } -xa @($bestPy)
-        Refresh-Path
-        $uvBin = Get-UvToolBin
+        if (-not (Test-Path $lPy)) {
+            Log "  [1/2] Creating Python environment ($bestPy)..." $Wh
+            New-Venv $lD $bestPy
+            Log "  done  [1/2] Environment" $Gn
+        }
+        Log "  [2/2] Installing LiteLLM (source build, several minutes)..." $Wh
+        Repair-Venv $lD
+        Pip-Run $lD @("litellm[proxy]")
+        Log "  done  [2/2] LiteLLM" $Gn
     }
 
-    if (-not $litellmExe) {
+    if (Test-Path $lExe) { $litellmExe = $lExe }
+    else {
+        # fallback: a previous uv-tool install is fine too
         $litellmExe = (Get-Command litellm -EA SilentlyContinue).Source
-        if (-not $litellmExe -and $uvBin) {
-            $cand = Join-Path $uvBin "litellm.exe"
-            if (Test-Path $cand) { $litellmExe = $cand }
-        }
         if (-not $litellmExe) {
             $cand = "$env:USERPROFILE\.local\bin\litellm.exe"
             if (Test-Path $cand) { $litellmExe = $cand }

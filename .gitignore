@@ -1,5 +1,6 @@
 # Installed at setup time
 Kokoro-FastAPI/
+LiteLLM/
 WhisperServer/.venv/
 WhisperServer/__pycache__/
 tools/
