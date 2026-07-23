@@ -128,15 +128,14 @@ if ($english.Count) { Write-Host ""; Write-Host "  ENGLISH" -F $VyColor.Accent; 
 if ($other.Count)   { Write-Host ""; Write-Host "  OTHER" -F $VyColor.Accent;   foreach ($v in $other)   { $m = if ($v -eq $savedVoice) { " *" } else { "" }; Write-Host ("  [{0}] {1}{2}" -f $opt, $v, $m) -F White; $opt++ } }
 
 Write-Host ""
-Write-Host "  (* = saved)" -F $VyColor.Dim
-Write-VyKeys @(@("1-9","pick"), @("Enter","keep $savedVoice"))
-$k = Read-VyKey
-Write-Host ""
+Write-Host "  (* = saved)  number or name, [Enter] keep $savedVoice" -F $VyColor.Dim
+Write-Host "  > " -NoNewline -F $VyColor.Title
+$vc = Read-Host
 $voice = $savedVoice
-if ($null -ne $k -and $k.KeyChar -match '^\d$') {
-    $ix = [int]"$($k.KeyChar)" - 1
-    if ($ix -ge 0 -and $ix -lt [Math]::Min(9, $all.Count)) { $voice = $all[$ix] }
-}
+if ($vc -match '^\d+$') {
+    $ix = [int]$vc - 1
+    if ($ix -ge 0 -and $ix -lt $all.Count) { $voice = $all[$ix] }
+} elseif ($vc.Trim() -and ($all -contains $vc.Trim())) { $voice = $vc.Trim() }
 Write-VyOk "voice: $voice"
 if ($voice -ne (Get-VyCfg $cfg "KokoroVoice")) { Set-VyCfg $scriptDir "KokoroVoice" $voice }
 Write-VyInfo "note: the Verity mod sends its own voice per request - this is the local default"

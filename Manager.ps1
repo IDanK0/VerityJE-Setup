@@ -9,6 +9,12 @@ if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
 
 . (Join-Path $scriptDir "VerityUI.ps1")
 
+$vyVersion = ""
+$vFile = Join-Path $scriptDir "VERSION"
+if (Test-Path $vFile) { $vyVersion = (Get-Content $vFile -Raw).Trim() }
+$vySubtitle = "AI backend control panel"
+if ($vyVersion) { $vySubtitle = "v$vyVersion - AI backend control panel" }
+
 $services = [ordered]@{
     F = @{ name = "FastKoko (TTS)"; port = 8880; launcher = "FastKoko.ps1";
            check = "Kokoro-FastAPI\.venv\Scripts\uvicorn.exe";
@@ -84,7 +90,7 @@ function Get-ServiceState($key) {
 
 function Show-Dashboard($states) {
     Clear-Host
-    Write-VyBanner "Verity JE - Manager" "AI backend control panel"
+    Write-VyBanner "Verity JE - Manager" $vySubtitle
     Write-VyRule "Services"
     Write-Host ""
     $cfg = Read-VyConfig $scriptDir
@@ -109,7 +115,7 @@ function Show-Dashboard($states) {
     }
     Write-Host ""
     Write-VyRule
-    Write-VyKeys @(@("S","Start all"), @("A","Stop all"), @("R","Restart all"), @("F/I/W","Toggle one"), @("C","Configure"), @("Q","Quit"))
+    Write-VyKeys @(@("S","Start all"), @("A","Stop all"), @("R","Restart all"), @("F/I/W","Toggle one"), @("C","Configure"), @("U","Update"), @("Q","Quit"))
     if ($services.I -and -not (Test-VyPort 4000) -and -not (Test-LiteLLMReady)) {
         Write-Host ""
         Write-VyWarn "LiteLLM not configured: press [C] to pick model + API key"
@@ -158,6 +164,51 @@ function Toggle-VerityService($key) {
     else { Start-VerityService $key }
 }
 
+function Invoke-Update {
+    Write-Host ""
+    Write-VyInfo "checking for updates..."
+    $local = $vyVersion
+    $remote = ""
+    try {
+        $remote = (Invoke-RestMethod "https://raw.githubusercontent.com/IDanK0/VerityJE-Setup/master/VERSION?t=$(Get-Date -Format 'HHmmss')" -TimeoutSec 10).Trim()
+    } catch { }
+    if (-not $remote) { Write-VyErr "cannot reach GitHub (offline?)"; Start-Sleep 2; return }
+    Write-Host "  local : $local" -F $VyColor.Dim
+    Write-Host "  remote: $remote" -F $VyColor.Dim
+    if ($remote -eq $local) { Write-VyOk "already up to date"; Start-Sleep 2; return }
+    Write-Host "  Update available: $local -> $remote. Apply? [Y/n] " -F $VyColor.Title -NoNewline
+    $a = Read-VyKey; Write-Host ""
+    if ($a -and ($a.KeyChar -eq 'n' -or $a.KeyChar -eq 'N')) { return }
+    if ((Test-Path (Join-Path $scriptDir ".git")) -and (Get-Command git -EA SilentlyContinue)) {
+        Write-VyInfo "git pull..."
+        & git -C $scriptDir pull 2>&1 | ForEach-Object { Write-Host "    $_" -F $VyColor.Dim }
+    } else {
+        Write-VyInfo "downloading latest scripts..."
+        try {
+            $zip = Join-Path $env:TEMP "verity-update.zip"
+            $dst = Join-Path $env:TEMP "verity-update"
+            Remove-Item $zip, $dst -Recurse -Force -EA SilentlyContinue
+            Invoke-WebRequest "https://github.com/IDanK0/VerityJE-Setup/archive/refs/heads/master.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 300
+            Expand-Archive $zip $dst -Force
+            $root = Get-ChildItem $dst -Directory | Select-Object -First 1
+            $files = @("Setup.bat", "setup.ps1", "VerityUI.ps1", "Manager.bat", "Manager.ps1",
+                       "FastKoko.bat", "FastKoko.ps1", "LiteLLM.bat", "LiteLLM.ps1",
+                       "WhisperServer.bat", "WhisperLauncher.ps1", "Uninstall.bat", "Uninstall.ps1",
+                       "README.md", "VERSION", ".gitignore")
+            foreach ($f in $files) {
+                $src = Join-Path $root.FullName $f
+                if (Test-Path $src) { Copy-Item $src (Join-Path $scriptDir $f) -Force }
+            }
+            $srv = Join-Path $root.FullName "WhisperServer\server.py"
+            if (Test-Path $srv) { Copy-Item $srv (Join-Path $scriptDir "WhisperServer\server.py") -Force }
+            Remove-Item $zip, $dst -Recurse -Force -EA SilentlyContinue
+        } catch { Write-VyErr "update failed: $_"; Start-Sleep 3; return }
+    }
+    Write-VyOk "updated - close and restart Manager.bat to use the new scripts"
+    Write-Host "  Press any key..." -F $VyColor.Dim
+    $null = Read-VyKey
+}
+
 function Invoke-Configure {
     # configuration center: FastKoko voice, LiteLLM model/key, Whisper model
     $cfg = Read-VyConfig $scriptDir
@@ -174,9 +225,12 @@ function Invoke-Configure {
         Write-Host ("{0}" -f $(if ($cfg.WhisperModel) { $cfg.WhisperModel } else { "(not set)" })) -F White
         Write-Host ("   [M] Microphone       ") -F $VyColor.Title -NoNewline
         Write-Host ("{0}" -f $(if ($cfg.MicDevice) { $cfg.MicDevice } else { "(not set - used by the mic test)" })) -F White
+        $gpuOn = ($cfg.KokoroUseGpu -eq $true -or "$($cfg.KokoroUseGpu)" -eq "true")
+        Write-Host ("   [G] FastKoko GPU     ") -F $VyColor.Title -NoNewline
+        Write-Host ("{0}" -f $(if ($gpuOn) { "on" } else { "off (CPU)" })) -F White
         Write-Host ""
         Write-VyRule
-        Write-VyKeys @(@("F","voice"), @("I","LLM + API key"), @("W","Whisper model"), @("M","microphone"), @("B","back"))
+        Write-VyKeys @(@("F","voice"), @("I","LLM + API key"), @("W","Whisper model"), @("M","microphone"), @("G","GPU on/off"), @("B","back"))
         $k = Read-VyKey
         if ($null -eq $k) { return }
         switch ([string]$k.KeyChar.ToString().ToUpper()) {
@@ -188,6 +242,10 @@ function Invoke-Configure {
             }
             "W" { Edit-WhisperModel; $cfg = Read-VyConfig $scriptDir }
             "M" { Edit-Microphone; $cfg = Read-VyConfig $scriptDir }
+            "G" {
+                Set-VyCfg $scriptDir "KokoroUseGpu" (-not $gpuOn)
+                $cfg = Read-VyConfig $scriptDir
+            }
             "B" { return }
             default { }
         }
@@ -293,10 +351,11 @@ function Edit-WhisperModel {
     )
     $cfg = Read-VyConfig $scriptDir
     $saved = Get-VyCfg $cfg "WhisperModel" "base"
+    $savedDev = Get-VyCfg $cfg "WhisperDevice" "auto"
     $cacheDir = Join-Path $env:USERPROFILE ".cache\whisper"
 
     Clear-Host
-    Write-VyBanner "Whisper model" "larger = more accurate, slower - applied on next start"
+    Write-VyBanner "Whisper model" "device: $savedDev  (auto uses GPU when available)"
     Write-Host ""
     for ($i = 0; $i -lt $models.Count; $i++) {
         $id = $models[$i][0]
@@ -314,16 +373,25 @@ function Edit-WhisperModel {
         Write-Host $m -F $VyColor.Accent
     }
     Write-Host ""
-    Write-VyKeys @(@("1-$($models.Count)","pick"), @("Enter","keep $saved"))
+    Write-VyKeys @(@("1-$($models.Count)","pick model"), @("A","device auto"), @("C","device cpu"), @("G","device cuda"), @("Enter","keep $saved"))
     $k = Read-VyKey
-    if ($null -ne $k -and $k.KeyChar -match '^\d$') {
-        $ix = [int]"$($k.KeyChar)" - 1
-        if ($ix -ge 0 -and $ix -lt $models.Count) {
-            $pick = $models[$ix][0]
-            Set-VyCfg $scriptDir "WhisperModel" $pick
-            Write-Host ""; Write-VyOk "Whisper model saved: $pick (applies on next start)"
+    if ($null -ne $k) {
+        $ch = [string]$k.KeyChar.ToString().ToUpper()
+        if ($ch -eq "A" -or $ch -eq "C" -or $ch -eq "G") {
+            $dev = @{ "A" = "auto"; "C" = "cpu"; "G" = "cuda" }[$ch]
+            Set-VyCfg $scriptDir "WhisperDevice" $dev
+            Write-Host ""; Write-VyOk "Whisper device saved: $dev (applies on next start)"
             if (Test-VyPort 9000) { Write-VyWarn "Whisper is RUNNING - toggle [W] to apply now" }
             Start-Sleep 2
+        } elseif ($ch -match '^\d$') {
+            $ix = [int]$ch - 1
+            if ($ix -ge 0 -and $ix -lt $models.Count) {
+                $pick = $models[$ix][0]
+                Set-VyCfg $scriptDir "WhisperModel" $pick
+                Write-Host ""; Write-VyOk "Whisper model saved: $pick (applies on next start)"
+                if (Test-VyPort 9000) { Write-VyWarn "Whisper is RUNNING - toggle [W] to apply now" }
+                Start-Sleep 2
+            }
         }
     }
 }
@@ -384,6 +452,7 @@ $forceRedraw = $true
         "I" { Toggle-VerityService "I" }
         "W" { Toggle-VerityService "W" }
         "C" { Invoke-Configure }
+        "U" { Invoke-Update; $forceRedraw = $true }
         "Q" {
             Write-Host ""
             Write-Host "  Stop services before quitting? [Y/n] " -F $VyColor.Title -NoNewline

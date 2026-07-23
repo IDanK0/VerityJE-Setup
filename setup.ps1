@@ -1020,7 +1020,8 @@ phase "Finalizing"
 
 if ($Path -ne $scriptRoot) {
     $toCopy = @("VerityUI.ps1", "Manager.bat", "Manager.ps1", "FastKoko.bat", "FastKoko.ps1",
-                "LiteLLM.bat", "LiteLLM.ps1", "WhisperServer.bat", "WhisperLauncher.ps1")
+                "LiteLLM.bat", "LiteLLM.ps1", "WhisperServer.bat", "WhisperLauncher.ps1",
+                "Uninstall.bat", "Uninstall.ps1", "VERSION")
     foreach ($f in $toCopy) {
         $src = Join-Path $scriptRoot $f
         if (Test-Path $src) { Copy-Item $src (Join-Path $Path $f) -Force }
@@ -1046,6 +1047,7 @@ $keepOllama = $(if ($prevCfg.OllamaModel) { $prevCfg.OllamaModel } else { "" })
 
 Save-Config @{
     WhisperModel   = $wModel
+    WhisperDevice  = $(if ($prevCfg.WhisperDevice) { $prevCfg.WhisperDevice } else { "auto" })
     CudaIndex      = $(if ($cudaIdx) { $cudaIdx } else { "cpu" })
     KokoroUseGpu   = $kokoroUseGpu
     PythonVersion  = $bestPy

@@ -35,6 +35,7 @@ if (Test-VyPort 9000) {
 
 # ----------------------------------------------------------- environment ----
 $env:WHISPER_MODEL = $model
+$env:WHISPER_DEVICE = Get-VyCfg $cfg "WhisperDevice" "auto"
 $env:PYTHONUTF8 = "1"
 
 $ff = Get-VyCfg $cfg "FfmpegBin"
