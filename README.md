@@ -10,12 +10,19 @@ One-click AI backend installer for the [Verity JE](https://www.curseforge.com/mi
 
 ## Quick Start
 
-```powershell
-powershell -ExecutionPolicy Bypass -File setup.ps1
-.\Manager.bat
-```
+1. Download this repo (Code -> Download ZIP, or `git clone`).
+2. Double-click **`Setup.bat`** (or run `powershell -ExecutionPolicy Bypass -File setup.ps1`).
+3. Double-click **`Manager.bat`** to start/stop everything.
 
-The installer detects your hardware, asks which services you want, and handles everything automatically. No manual installs, no Docker, no config files.
+The installer detects your hardware, asks which services you want, and handles everything automatically: Git, uv, Python, ffmpeg, models, configuration. No Docker, no manual steps. If winget is unavailable (e.g. Windows Sandbox), everything is downloaded directly from official sources.
+
+Unattended mode (great for testing / Windows Sandbox):
+
+```powershell
+.\setup.ps1 -Yes              # all services, all defaults, zero prompts
+.\setup.ps1 -Yes -Services K,W   # only FastKoko + Whisper
+.\setup.ps1 -SelfTest         # hardware/software detection only, changes nothing
+```
 
 ---
 
@@ -23,12 +30,16 @@ The installer detects your hardware, asks which services you want, and handles e
 
 | Service | Purpose | Port | Model |
 |---------|---------|------|-------|
-| FastKoko | Text-to-Speech | `8880/v1/` | Kokoro-82M |
-| LiteLLM | AI Gateway (100+ LLMs) | `4000/v1/` | Groq / Ollama / any provider |
-| WhisperServer | Speech-to-Text | `9000/v1/` | auto-selected by hardware |
-| Ollama | Local LLM runner | optional | llama3.2, mistral, gemma, etc. |
+| FastKoko | Text-to-Speech | `8880` | Kokoro-82M (pinned Kokoro-FastAPI v0.6.0) |
+| LiteLLM | AI Gateway (100+ LLMs) | `4000` | Groq / OpenAI / Anthropic / Gemini / Ollama |
+| WhisperServer | Speech-to-Text | `9000` | auto-selected by hardware |
+| Ollama | Local LLM runner | optional | llama3.2, mistral, qwen, etc. |
 
-All services expose OpenAI-compatible APIs under `http://127.0.0.1:{PORT}/v1/`.
+All services listen on `127.0.0.1` only and expose OpenAI-compatible APIs:
+
+- TTS: `POST http://127.0.0.1:8880/v1/audio/speech`
+- STT: `POST http://127.0.0.1:9000/v1/audio/transcriptions`
+- LLM: `POST http://127.0.0.1:4000/v1/chat/completions`
 
 ---
 
@@ -38,22 +49,22 @@ All services expose OpenAI-compatible APIs under `http://127.0.0.1:{PORT}/v1/`.
 Microphone -> Whisper (STT) -> text -> LiteLLM -> Groq / Ollama -> text -> Kokoro (TTS) -> Speakers
 ```
 
-- **Cloud mode**: LiteLLM routes to Groq. Requires a Groq API key.
+- **Cloud mode**: LiteLLM routes to a cloud provider (Groq, OpenAI, ...). Requires an API key, asked once and stored per-user.
 - **Local mode**: LiteLLM routes to Ollama running a local model. Fully offline.
 
 ---
 
 ## Hardware Detection
 
-| Hardware | Whisper Model | Torch Backend | CUDA Index |
-|----------|--------------|---------------|------------|
-| NVIDIA GPU (6+ GB VRAM) | `large-v3-turbo` | CUDA | auto-detected |
-| NVIDIA GPU (4-6 GB VRAM) | `medium` | CUDA | auto-detected |
-| NVIDIA GPU (<4 GB VRAM) | `base` | CUDA | auto-detected |
-| AMD GPU / CPU only, 16+ GB RAM | `base` | CPU | N/A |
-| CPU only, <16 GB RAM | `tiny` | CPU | N/A |
+| Hardware | Whisper Model | Torch Build |
+|----------|--------------|-------------|
+| NVIDIA GPU (6+ GB VRAM) | `large-v3-turbo` | CUDA matched to driver |
+| NVIDIA GPU (4-6 GB VRAM) | `medium` | CUDA matched to driver |
+| NVIDIA GPU (<4 GB VRAM) | `base` | CUDA matched to driver |
+| CPU only, 16+ GB RAM | `base` | CPU |
+| CPU only, <16 GB RAM | `tiny` | CPU |
 
-All values are auto-detected at install time. Nothing is hardcoded.
+The PyTorch CUDA build is matched to your actual NVIDIA driver (`nvidia-smi`). If CUDA turns out to be unusable (old driver, sandboxed VM), the installer automatically falls back to the CPU build. Nothing is hardcoded; everything is re-verified after install.
 
 ---
 
@@ -61,23 +72,27 @@ All values are auto-detected at install time. Nothing is hardcoded.
 
 ### Manager
 
-```powershell
+```
 .\Manager.bat
 ```
 
 ```
 [S] Start all    [A] Stop all    [R] Restart all
 [F] FastKoko     [I] LiteLLM     [W] Whisper
-[Q] Quit
+[Q] Quit (stops services)
 ```
+
+Status is read live from the listening ports; MISSING means "run Setup.bat".
 
 ### Individual Launchers
 
-```powershell
-.\FastKoko.bat       # TTS: http://127.0.0.1:8880/v1/
-.\LiteLLM.bat        # AI:  http://127.0.0.1:4000/v1/
+```
+.\FastKoko.bat       # TTS: http://127.0.0.1:8880/v1/  (+ interactive voice test)
+.\LiteLLM.bat        # AI:  http://127.0.0.1:4000/v1/  (model + key picker, saved)
 .\WhisperServer.bat  # STT: http://127.0.0.1:9000/v1/
 ```
+
+Launchers read `config.psd1` (written by setup) for the Whisper model, ffmpeg location, eSpeak library, GPU flags and saved LiteLLM model. Deleting `config.psd1` and re-running `setup.ps1` regenerates it.
 
 ---
 
@@ -85,37 +100,42 @@ All values are auto-detected at install time. Nothing is hardcoded.
 
 - Windows 10 or 11
 - Internet connection
+- Admin rights help (Git install via winget triggers a UAC prompt) but most components install per-user.
 
-Missing dependencies (Git, uv, Python 3.10-3.13, eSpeak NG) are installed automatically. If winget is unavailable (e.g. Windows Sandbox), the installer downloads directly from official sources.
+Installed automatically when missing: **Git**, **uv** (with a managed Python 3.10-3.13), **ffmpeg** (required by Whisper), plus all Python dependencies in isolated venvs. eSpeak NG comes bundled via the `espeakng-loader` pip package - no system install needed.
 
 ---
 
 ## Troubleshooting
 
+Everything logs to the `logs\` folder - check there first (`setup.log`, `fastkoko-server.err.log`, `whisper-server.err.log`, ...).
+
 | Problem | Solution |
 |---------|----------|
-| Service not starting | Check port is free (`netstat -ano`), restart via Manager |
-| Model download failed | Installer retries automatically. Re-run `setup.ps1` |
-| CUDA not available | Update NVIDIA drivers. Installer falls back to CPU |
-| winget not found | Installer downloads directly from official URLs |
-| Git/uv not found | Installer installs them automatically |
-| Python version conflict | Installer uses `uv` with isolated venvs (Python 3.10-3.13) |
+| Service not starting | Check `logs\*.err.log`, make sure the port is free, restart via Manager |
+| "not installed" in Manager | Run `Setup.bat` |
+| Model download failed | Installer retries 3x. Re-run `setup.ps1` (it resumes/skips what exists) |
+| CUDA not available | Update NVIDIA drivers. Installer falls back to CPU automatically |
+| Transcription fails with "ffmpeg not found" | Re-run `setup.ps1` - ffmpeg was missing |
+| winget not found | Everything falls back to direct downloads from official URLs |
+| Broken/partial install | Re-run `setup.ps1` - it verifies and repairs every step |
+| LiteLLM asks for a key every time | Keys are stored in your user environment after the first run |
 
 ---
 
 ## Project Structure
 
 ```
-setup.ps1                 One-click installer
-_generate_scripts.ps1     Script generator (called by setup)
+Setup.bat                 Double-click installer entry point
+setup.ps1                 Installer (-Yes / -Services / -SelfTest / -Path / -SkipOllama)
 Manager.bat / .ps1        Master control panel
-FastKoko.bat / .ps1       TTS launcher
-LiteLLM.bat / .ps1        AI Gateway launcher
+FastKoko.bat / .ps1       TTS launcher (-ServerOnly for unattended start)
+LiteLLM.bat / .ps1        AI Gateway launcher (saves model + API key)
 WhisperServer.bat         STT launcher
 WhisperLauncher.ps1
-WhisperServer/server.py   Whisper API server
-.gitignore
-README.md
+WhisperServer/server.py   OpenAI-compatible Whisper API (transcriptions/translations)
+config.psd1               Generated machine config (gitignored)
+logs/                     Setup + server logs (gitignored)
 ```
 
 ---
