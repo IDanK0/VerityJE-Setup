@@ -102,7 +102,12 @@ Launchers read `config.psd1` (written by setup) for the Whisper model, ffmpeg lo
 - Internet connection
 - Admin rights help (Git install via winget triggers a UAC prompt) but most components install per-user.
 
-Installed automatically when missing: **Git**, **uv** (with a managed Python 3.10-3.13), **ffmpeg** (required by Whisper), plus all Python dependencies in isolated venvs. eSpeak NG comes bundled via the `espeakng-loader` pip package - no system install needed.
+Installed automatically when missing: **Git**, **uv** (with a managed Python 3.10-3.13), **ffmpeg** (required by Whisper), **Visual C++ Runtime** (required by torch), plus all Python dependencies in isolated venvs. eSpeak NG comes bundled via the `espeakng-loader` pip package - no system install needed.
+
+Notes for clean/VM environments (Windows Sandbox included):
+- No winget? Everything falls back to direct downloads from official URLs.
+- Paravirtualized GPU without `nvidia-smi`? Treated as CPU-only (no useless 3 GB CUDA download).
+- Kokoro is installed with `misaki[en]` (English/Italian voices). The full `misaki[en,ja,ko,zh]` requires compiling C++ extensions (Visual Studio Build Tools); re-enable it in `Kokoro-FastAPI/pyproject.toml` if you ever need JA/KO/ZH.
 
 ---
 

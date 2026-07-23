@@ -1,4 +1,4 @@
-<# ============================================================================
+﻿<# ============================================================================
  Verity JE Setup - one-click AI backend installer
  Installs and configures: FastKoko (TTS), LiteLLM (LLM gateway), Whisper (STT)
 
@@ -322,7 +322,9 @@ function Read-System {
                 $script:cudaIdx = Get-CudaIndex
             } catch { $script:cudaIdx = "cu126" }
         } else {
-            $script:cudaIdx = "cu126"   # driver tools missing: conservative guess
+            # nvidia-smi missing = no usable CUDA driver (VM / Sandbox paravirtualized GPU): CPU mode.
+            # Avoids downloading ~3GB of CUDA wheels that can never work here.
+            $script:cudaIdx = ""
         }
         if ($script:vramGB -lt 1) { $script:vramGB = 4 }
     } else {
@@ -450,16 +452,40 @@ foreach ($pp in @(@(8880, "FastKoko", $svc.K), @(4000, "LiteLLM", $svc.L), @(900
 
 # ================================================================= PHASE 4 ==
 # System dependencies
-$needDeps = (-not $hasGit) -or (-not $hasUv) -or ($svc.W -and -not $ffmpegBin)
+$needVCRedist = -not ((Test-Path "$env:SystemRoot\System32\vcruntime140.dll") -and (Test-Path "$env:SystemRoot\System32\msvcp140.dll"))
+$needDeps = $needVCRedist -or (-not $hasGit) -or (-not $hasUv) -or ($svc.W -and -not $ffmpegBin)
 if ($needDeps) {
     phase "System Dependencies"
 
     # long paths save pip/uv from WinError 206 with deeply nested packages (best effort, needs admin)
     try { Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -Value 1 -EA Stop } catch { }
 
+    if ($needVCRedist) {
+        # torch (and espeak-ng.dll) need the MSVC runtime; Sandbox/fresh Windows don't have it
+        spn "Install VC++ Runtime" 1 4 {
+            $ErrorActionPreference = "Continue"
+            $tmp = Join-Path $env:TEMP "vc_redist.x64.exe"
+            $dlErr = ""
+            if (Get-Command curl.exe -EA SilentlyContinue) {
+                $cout = & curl.exe -fsSL -o $tmp "https://aka.ms/vs/17/release/vc_redist.x64.exe" 2>&1 | Out-String
+                if ($LASTEXITCODE -ne 0) { $dlErr = "curl exit ${LASTEXITCODE}: $cout" }
+            } else {
+                try { Invoke-WebRequest "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile $tmp -UseBasicParsing -TimeoutSec 300 -EA Stop } catch { $dlErr = "$_" }
+            }
+            if ($dlErr) { throw "VC++ download failed - $dlErr" }
+            $p = Start-Process -FilePath $tmp -ArgumentList "/install", "/quiet", "/norestart" -Wait -PassThru
+            Remove-Item $tmp -Force -EA SilentlyContinue
+            # 0 = ok, 3010 = ok (reboot pending), 1638 = newer version already present
+            if ($p.ExitCode -notin @(0, 3010, 1638)) { throw "vc_redist exited $($p.ExitCode)" }
+        }
+        if ((Test-Path "$env:SystemRoot\System32\vcruntime140.dll") -and (Test-Path "$env:SystemRoot\System32\msvcp140.dll")) {
+            Log "  VC++ Runtime installed" $Gn
+        } else { die "VC++ Runtime install failed - install it manually: https://aka.ms/vs/17/release/vc_redist.x64.exe" }
+    }
+
     if (-not $hasGit) {
         if (T winget) {
-            spn "Install Git (winget)" 1 3 {
+            spn "Install Git (winget)" 2 4 {
                 $ErrorActionPreference = "Continue"
                 & winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
             }
@@ -467,7 +493,7 @@ if ($needDeps) {
         }
         if (-not (T git)) {
             # winget missing or failed (common in Windows Sandbox): direct download
-            spn "Install Git (direct download)" 1 3 {
+            spn "Install Git (direct download)" 2 4 {
                 $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $rel = Invoke-RestMethod "https://api.github.com/repos/git-for-windows/git/releases/latest" -Headers @{ "User-Agent" = "VerityJE-Setup" }
                 $asset = $null
@@ -493,7 +519,7 @@ if ($needDeps) {
 
     if (-not $hasUv) {
         if (T winget) {
-            spn "Install uv (winget)" 2 3 {
+            spn "Install uv (winget)" 3 4 {
                 $ErrorActionPreference = "Continue"
                 & winget install --id astral-sh.uv -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
                 if ($LASTEXITCODE -ne 0) {
@@ -504,7 +530,7 @@ if ($needDeps) {
         }
         if (-not (T uv)) {
             # winget missing or failed: standalone binary into ~/.local/bin
-            spn "Install uv (direct download)" 2 3 {
+            spn "Install uv (direct download)" 3 4 {
                 $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $zip = Join-Path $env:TEMP "uv.zip"
                 $dst = "$env:USERPROFILE\.local\bin"
@@ -534,7 +560,7 @@ if ($needDeps) {
     if ($svc.W -and -not $ffmpegBin) {
         $installed = $false
         if (T winget) {
-            spn "Install ffmpeg (winget)" 3 3 {
+            spn "Install ffmpeg (winget)" 4 4 {
                 $ErrorActionPreference = "Continue"
                 & winget install --id Gyan.FFmpeg.Essentials -e --silent --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
             }
@@ -543,7 +569,7 @@ if ($needDeps) {
         }
         if (-not $installed) {
             $ffDir = Join-Path $Path "tools\ffmpeg"
-            spn "Install ffmpeg (direct download)" 3 3 {
+            spn "Install ffmpeg (direct download)" 4 4 {
                 param($ffDirArg)
                 $ErrorActionPreference = "Continue"   # native stderr must never terminate the job
                 $zip = Join-Path $env:TEMP "ffmpeg.zip"
@@ -617,6 +643,19 @@ if ($svc.K) {
             }
             if (-not (Test-Path (Join-Path $dst "api\src\main.py"))) { throw "Clone verification failed" }
         } -xa @($Path, $tag)
+    }
+
+    # Patch pyproject: misaki[ja] pulls pyopenjtalk = C++ source build (needs VS Build
+    # Tools, missing on normal PCs/Sandbox). Verity JE uses EN/IT voices -> misaki[en].
+    # Applied on every run so existing clones are covered too.
+    $pyproj = Join-Path $kD "pyproject.toml"
+    if (Test-Path $pyproj) {
+        $pp = [IO.File]::ReadAllText($pyproj)
+        if ($pp -match 'misaki\[[^\]]*\]' -and $Matches[0] -ne 'misaki[en]') {
+            $pp = $pp -replace 'misaki\[[^\]]*\]', 'misaki[en]'
+            [IO.File]::WriteAllText($pyproj, $pp, (New-Object Text.UTF8Encoding($false)))
+            Log "  patched pyproject: misaki[en] (no C++ build deps)" $Dg
+        }
     }
 
     # 2/5 Environment
